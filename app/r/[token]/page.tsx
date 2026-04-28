@@ -217,7 +217,7 @@ export default function ClientReviewPage({ params }: { params: { token: string }
 
                       const headlineLine = headlines
                         .map((h) => dkiVisible(h.text))
-                        .join(" · ");
+                        .join(" | ");
 
                       return (
                         <div key={key} className={`variation ${fb?.status || ""}`}>

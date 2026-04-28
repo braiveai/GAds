@@ -155,7 +155,7 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-function extractInternalLinks(html: string, baseUrl: string): string[] {
+function extractInternalLinks(html: string, baseUrl: string, max = 4): string[] {
   let base: URL;
   try {
     base = new URL(baseUrl);
@@ -183,9 +183,67 @@ function extractInternalLinks(html: string, baseUrl: string): string[] {
     if (seen.has(clean)) continue;
     seen.add(clean);
     out.push(clean);
-    if (out.length >= 4) break;
+    if (out.length >= max) break;
   }
   return out;
+}
+
+/** Try to discover URLs from sitemap.xml (best effort). */
+async function fetchSitemapUrls(origin: string): Promise<string[]> {
+  const candidates = [`${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`];
+  const collected = new Set<string>();
+  for (const sitemapUrl of candidates) {
+    try {
+      const res = await fetchWithBrowserUA(sitemapUrl);
+      if (!res.ok || !res.html) continue;
+      // Pull <loc>...</loc> entries
+      const locRe = /<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+      let m: RegExpExecArray | null;
+      const subSitemaps: string[] = [];
+      while ((m = locRe.exec(res.html)) !== null) {
+        const u = m[1].trim();
+        if (!u) continue;
+        if (u.endsWith(".xml")) {
+          subSitemaps.push(u);
+        } else {
+          collected.add(u);
+        }
+        if (collected.size > 200) break;
+      }
+      // Follow up to 3 sub-sitemaps
+      for (const sub of subSitemaps.slice(0, 3)) {
+        try {
+          const subRes = await fetchWithBrowserUA(sub);
+          if (!subRes.ok || !subRes.html) continue;
+          let mm: RegExpExecArray | null;
+          const subRe = /<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+          while ((mm = subRe.exec(subRes.html)) !== null) {
+            const u = mm[1].trim();
+            if (u && !u.endsWith(".xml")) collected.add(u);
+            if (collected.size > 200) break;
+          }
+        } catch {}
+        if (collected.size > 200) break;
+      }
+      if (collected.size > 0) break; // first sitemap that worked
+    } catch {}
+  }
+  return Array.from(collected);
+}
+
+function dedupeAndCleanUrls(urls: string[], baseHost: string): string[] {
+  const out = new Set<string>();
+  for (const u of urls) {
+    try {
+      const parsed = new URL(u);
+      if (parsed.host !== baseHost) continue;
+      if (/\.(png|jpe?g|svg|webp|gif|pdf|zip|mp4|mov|css|js|ico|woff2?|xml|txt)(\?|$)/i.test(parsed.pathname)) continue;
+      // strip trailing slash unless it's root
+      const path = parsed.pathname === "/" ? "/" : parsed.pathname.replace(/\/$/, "");
+      out.add(parsed.origin + path);
+    } catch {}
+  }
+  return Array.from(out);
 }
 
 export async function POST(req: NextRequest) {
@@ -224,12 +282,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) discover up to 4 internal pages
-    const internalLinks = extractInternalLinks(home.html, home.finalUrl || url);
+    // 2) discover up to 4 internal pages for AI corpus
+    const internalLinks = extractInternalLinks(home.html, home.finalUrl || url, 4);
     debug.internalLinks = internalLinks;
-    debug.steps.push(`found ${internalLinks.length} internal links`);
+    debug.steps.push(`found ${internalLinks.length} internal links for corpus`);
 
-    // 3) fetch internal pages in parallel
+    // 2b) parallel: discover broader page list (sitemap + more homepage links)
+    const baseHostname = new URL(home.finalUrl || url).host;
+    const baseOrigin = new URL(home.finalUrl || url).origin;
+    const broaderLinks = extractInternalLinks(home.html, home.finalUrl || url, 80);
+    const sitemapUrls = await fetchSitemapUrls(baseOrigin).catch(() => [] as string[]);
+    debug.sitemapCount = sitemapUrls.length;
+    const allDiscovered = dedupeAndCleanUrls([home.finalUrl || url, ...internalLinks, ...broaderLinks, ...sitemapUrls], baseHostname);
+    debug.steps.push(`discovered ${allDiscovered.length} pages total (sitemap: ${sitemapUrls.length})`);
+
+    // 3) fetch internal pages in parallel for AI corpus
     const innerResults = await Promise.all(internalLinks.map((u) => fetchWithBrowserUA(u)));
     debug.innerFetches = innerResults.map((r) => ({
       url: r.url,
@@ -283,10 +350,29 @@ export async function POST(req: NextRequest) {
     const brief = toolBlock.input;
     debug.steps.push("got tool_use input");
 
+    const scrapedSet = new Set<string>([home.finalUrl || url, ...innerResults.filter((r) => r.ok).map((r) => r.finalUrl || r.url)]);
+    const discoveredPages = allDiscovered
+      .map((u) => {
+        try {
+          const path = new URL(u).pathname;
+          return { url: u, path, scraped: scrapedSet.has(u) };
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is { url: string; path: string; scraped: boolean } => !!x)
+      .sort((a, b) => {
+        // Root first, then alphabetical
+        if (a.path === "/") return -1;
+        if (b.path === "/") return 1;
+        return a.path.localeCompare(b.path);
+      });
+
     return NextResponse.json({
       url,
       brief,
       pagesScraped: 1 + innerResults.filter((r) => r.ok).length,
+      discoveredPages,
       debug: { ...debug, totalElapsedMs: Date.now() - t0 },
     });
   } catch (err: any) {

@@ -33,9 +33,9 @@ const archTool = {
       },
       campaigns: {
         type: "array",
-        description: "2 to 4 campaigns covering the brief and selected channels.",
+        description: "2 to 6 campaigns covering the brief and selected channels.",
         minItems: 2,
-        maxItems: 4,
+        maxItems: 6,
         items: {
           type: "object",
           properties: {
@@ -178,10 +178,13 @@ export async function POST(req: NextRequest) {
       angles,
       leanPercent,
       channels,
-      nameSuffix = "SD",
+      nameSuffix = "SA",
       accountNegatives = [],
       userContext = {},
       brandGuidelines = "",
+      candidateLandingPages = [],
+      prioritizedAngles = [],
+      campaignCount = 0,
     } = body || {};
 
     if (!brand || !angles) {
@@ -196,12 +199,16 @@ export async function POST(req: NextRequest) {
       accountNegativesCount: accountNegatives.length,
       hasBrandGuidelines: !!brandGuidelines,
       userContextKeys: Object.keys(userContext).filter((k) => userContext[k]),
+      candidateLandingPagesCount: candidateLandingPages.length,
+      prioritizedAnglesCount: prioritizedAngles.length,
+      campaignCount,
     };
     debug.steps.push("parsed body");
 
     const channelList = Array.isArray(channels) && channels.length > 0 ? channels : ["Search"];
     const lean = typeof leanPercent === "number" ? leanPercent : 50;
-    const suffix = (nameSuffix || "SD").trim().toUpperCase().slice(0, 8) || "SD";
+    const suffix = (nameSuffix || "SA").trim().toUpperCase().slice(0, 8) || "SA";
+    const targetCampaignCount = campaignCount && campaignCount >= 2 && campaignCount <= 6 ? campaignCount : 0;
 
     const userContextBlock = [
       userContext.about ? `What the business does: ${userContext.about}` : "",
@@ -219,6 +226,20 @@ export async function POST(req: NextRequest) {
     const accountNegBlock = accountNegatives.length
       ? `\n\nACCOUNT-WIDE NEGATIVES (already applied at account level - do NOT duplicate these in campaign negatives):\n${accountNegatives.join(", ")}`
       : "";
+
+    const candidatePagesBlock = candidateLandingPages.length
+      ? `\n\nCANDIDATE LANDING PAGES (the user has selected these pages from the site - prefer these for landingPath; use the path portion only, leading slash):\n${candidateLandingPages.map((u: string) => {
+          try { return new URL(u).pathname; } catch { return u; }
+        }).join("\n")}`
+      : "";
+
+    const prioritizedAnglesBlock = prioritizedAngles.length
+      ? `\n\nPRIORITIZED ANGLES (user has flagged these as most important - bias the architecture toward them):\n${prioritizedAngles.join("\n")}`
+      : "";
+
+    const campaignCountInstruction = targetCampaignCount
+      ? `Submit EXACTLY ${targetCampaignCount} campaigns.`
+      : `Submit 2 to 4 campaigns covering the brief and selected channels.`;
 
     const userText = `Propose a Google Ads campaign architecture for the brand below.
 
@@ -238,10 +259,10 @@ ${(angles.pain || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.des
 ASPIRATION:
 ${(angles.aspiration || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.desc}`).join("\n")}
 
-CHANNELS REQUESTED: ${channelList.join(", ")}
+CHANNELS REQUESTED: ${channelList.join(", ")}${candidatePagesBlock}${prioritizedAnglesBlock}
 
 REQUIREMENTS
-- Submit 2 to 4 campaigns via submit_architecture.
+- ${campaignCountInstruction}
 - Naming: campaign = "{Theme} x {Sub-theme} | ${suffix}", ad group = "{Sub-theme} | {STRUCTURE}".
 - 2 to 4 ad groups per campaign (except SKAG, see below).
 - Provide a top-level strategySummary AND a clientRationale per campaign written for a non-technical client.

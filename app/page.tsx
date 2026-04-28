@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  Home, Sparkles, Layers, FileText, Send, Plus, X, ChevronRight, ChevronDown, ChevronUp,
+  Search, Upload, Star, StarOff, Wand2, Eye, Settings, RefreshCw, Trash2, Hash, Globe, Target,
+  ArrowRight, Check, Info, Download, ExternalLink, Filter,
+} from "lucide-react";
 
 /* ============================================================
    TYPES
@@ -24,6 +29,8 @@ type Brief = {
   recommendedLean: number;
   pagesScraped?: number;
 };
+
+type DiscoveredPage = { url: string; path: string; scraped: boolean };
 
 type UserContext = {
   about?: string;
@@ -126,6 +133,26 @@ function safeHost(url: string) {
   }
 }
 
+const ACRONYM_TIPS: Record<string, string> = {
+  SKAG: "Single Keyword Ad Group - exactly 1 keyword per group, named after the keyword",
+  STAG: "Single Theme Ad Group - 1-3 close variants of the same root term per group",
+  MKAG: "Multiple Keyword Ad Group - 5-12 keywords on a tight theme",
+  Hagakure: "Single ad group per campaign with 1-3 broad keywords + smart bidding",
+  Custom: "Structure determined by the brief - see strategist note",
+  PHR: "Phrase match - matches searches that include the meaning of your keyword",
+  EXC: "Exact match - matches only searches with the exact meaning of your keyword",
+  BRD: "Broad match - matches related searches even without your keyword",
+  Search: "Search campaign - keywords + responsive search ads on Google.com",
+  PMax: "Performance Max - asset groups across all Google channels",
+  Demand: "Demand Gen - discovery-style feeds across YouTube and Discover",
+  DKI: "Dynamic Keyword Insertion - swaps the user's search term into the headline",
+  RSA: "Responsive Search Ad - up to 15 headlines and 5 descriptions",
+};
+
+function tip(key: string): string {
+  return ACRONYM_TIPS[key] || key;
+}
+
 function fmtMoney(n: number) {
   return `$${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
 }
@@ -222,9 +249,15 @@ export default function Page() {
   // New persisted inputs
   const [userContext, setUserContext] = useState<UserContext>({});
   const [brandGuidelines, setBrandGuidelines] = useState<string>("");
-  const [nameSuffix, setNameSuffix] = useState<string>("SD");
+  const [nameSuffix, setNameSuffix] = useState<string>("SA");
   const [accountNegatives, setAccountNegatives] = useState<string[]>([]);
   const [contextOpen, setContextOpen] = useState(false);
+  const [discoveredPages, setDiscoveredPages] = useState<DiscoveredPage[]>([]);
+  const [selectedPages, setSelectedPages] = useState<string[]>([]);
+  const [pagesOpen, setPagesOpen] = useState(false);
+  const [prioritizedAngles, setPrioritizedAngles] = useState<string[]>([]);
+  const [campaignCount, setCampaignCount] = useState<number>(0); // 0 = auto
+  const brandFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // UI-only
   const [error, setError] = useState<ErrorState>(null);
@@ -258,6 +291,10 @@ export default function Page() {
         if (typeof s.nameSuffix === "string") setNameSuffix(s.nameSuffix);
         if (Array.isArray(s.accountNegatives)) setAccountNegatives(s.accountNegatives);
         if (typeof s.strategySummary === "string") setStrategySummary(s.strategySummary);
+        if (Array.isArray(s.discoveredPages)) setDiscoveredPages(s.discoveredPages);
+        if (Array.isArray(s.selectedPages)) setSelectedPages(s.selectedPages);
+        if (Array.isArray(s.prioritizedAngles)) setPrioritizedAngles(s.prioritizedAngles);
+        if (typeof s.campaignCount === "number") setCampaignCount(s.campaignCount);
       }
     } catch {}
     restoredRef.current = true;
@@ -282,10 +319,14 @@ export default function Page() {
         nameSuffix,
         accountNegatives,
         strategySummary,
+        discoveredPages,
+        selectedPages,
+        prioritizedAngles,
+        campaignCount,
       };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
     } catch {}
-  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary]);
+  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary, discoveredPages, selectedPages, prioritizedAngles, campaignCount]);
 
   /* ----- Health check on mount ----- */
   useEffect(() => {
@@ -339,7 +380,12 @@ export default function Page() {
       const b: Brief = { ...data.brief, pagesScraped: data.pagesScraped };
       setBrief(b);
       setLeanValue(b.recommendedLean ?? 50);
-      setToast({ type: "success", message: `Brief extracted from ${data.pagesScraped} page${data.pagesScraped === 1 ? "" : "s"}` });
+      const pages: DiscoveredPage[] = Array.isArray(data.discoveredPages) ? data.discoveredPages : [];
+      setDiscoveredPages(pages);
+      // Pre-select pages we actually scraped (they're the ones the AI knows about)
+      const preselect = pages.filter((p) => p.scraped).map((p) => p.url);
+      setSelectedPages(preselect);
+      setToast({ type: "success", message: `Brief extracted from ${data.pagesScraped} page${data.pagesScraped === 1 ? "" : "s"} · ${pages.length} pages discovered` });
     } catch (err: any) {
       setError({ message: err?.message || String(err), debug: { exception: String(err) } });
     } finally {
@@ -368,6 +414,9 @@ export default function Page() {
           accountNegatives,
           userContext,
           brandGuidelines,
+          candidateLandingPages: selectedPages,
+          prioritizedAngles,
+          campaignCount,
         }),
       });
       const data = await res.json();
@@ -555,9 +604,13 @@ export default function Page() {
     setError(null);
     setUserContext({});
     setBrandGuidelines("");
-    setNameSuffix("SD");
+    setNameSuffix("SA");
     setAccountNegatives([]);
     setStrategySummary("");
+    setDiscoveredPages([]);
+    setSelectedPages([]);
+    setPrioritizedAngles([]);
+    setCampaignCount(0);
   }
 
   /* ----- Mutators ----- */
@@ -766,7 +819,7 @@ export default function Page() {
 
         <div className="nav-section">
           <button className="nav-item" onClick={handleReset}>
-            <span className="nav-icon">⌂</span>
+            <Home size={14} className="nav-icon" />
             <span>Home / Brands</span>
           </button>
         </div>
@@ -788,7 +841,9 @@ export default function Page() {
                       if (status !== "todo" || campaigns.length) setStage(s);
                     }}
                   >
-                    <span className="stage-nav-num">{i + 1}</span>
+                    <span className="stage-nav-num">
+                      {status === "done" ? <Check size={11} /> : i + 1}
+                    </span>
                     <span>{stageLabels[s]}</span>
                   </button>
                   {s === "architect" && stage === "architect" && (
@@ -841,11 +896,11 @@ export default function Page() {
           </span>
           {stage === "generate" && (
             <>
-              <button className="btn sm" onClick={() => handleExport("xlsx")}>↓ XLSX</button>
-              <button className="btn sm" onClick={() => handleExport("csv")}>↓ CSV</button>
+              <button className="btn sm" onClick={() => handleExport("xlsx")}><Download size={11} /> XLSX</button>
+              <button className="btn sm" onClick={() => handleExport("csv")}><Download size={11} /> CSV</button>
             </>
           )}
-          <button className="btn sm ghost" onClick={handleReset}>Reset</button>
+          <button className="btn sm ghost" onClick={handleReset}><RefreshCw size={11} /> Reset</button>
         </div>
 
         {/* ----- BRIEF VIEW ----- */}
@@ -870,7 +925,7 @@ export default function Page() {
                 }}
               />
               <button className="btn primary" onClick={handleScrapeBrief} disabled={!!loading}>
-                Scrape →
+                <Search size={13} /> Scrape
               </button>
             </div>
             <p className="text-helper">
@@ -933,11 +988,46 @@ export default function Page() {
                     />
                   </div>
                   <div className="context-field context-field-wide">
-                    <label>Brand guidelines <em>(paste tone of voice, do/don'ts, banned phrases)</em></label>
+                    <label>
+                      Brand guidelines <em>(paste tone of voice, do/don'ts, banned phrases)</em>
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        style={{ marginLeft: "auto" }}
+                        onClick={() => brandFileInputRef.current?.click()}
+                        title="Upload a .txt or .md file - PDF/DOCX coming soon"
+                      >
+                        <Upload size={11} /> Upload .txt/.md
+                      </button>
+                    </label>
+                    <input
+                      ref={brandFileInputRef}
+                      type="file"
+                      accept=".txt,.md,.markdown,text/plain,text/markdown"
+                      style={{ display: "none" }}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 500_000) {
+                          setError({ message: "File too large (>500KB). Paste the relevant sections instead." });
+                          return;
+                        }
+                        try {
+                          const text = await file.text();
+                          // Append rather than overwrite so a previously pasted block isn't lost
+                          setBrandGuidelines((prev) => prev ? prev + "\n\n" + text : text);
+                          setToast({ type: "success", message: `Loaded ${file.name} (${Math.round(text.length / 1000)}KB)` });
+                        } catch (err: any) {
+                          setError({ message: "Could not read file: " + (err?.message || String(err)) });
+                        }
+                        // reset input so re-uploading the same file works
+                        if (brandFileInputRef.current) brandFileInputRef.current.value = "";
+                      }}
+                    />
                     <textarea
                       className="text-input"
                       rows={4}
-                      placeholder="Paste anything - tone of voice, banned terms, mandatory disclaimers, RTBs, anything that should shape the copy."
+                      placeholder="Paste anything - tone of voice, banned terms, mandatory disclaimers, RTBs, anything that should shape the copy. Or upload a .txt/.md file."
                       value={brandGuidelines}
                       onChange={(e) => setBrandGuidelines(e.target.value)}
                     />
@@ -1003,31 +1093,118 @@ export default function Page() {
                 </div>
 
                 <div className="brief-section">
-                  <div className="label-mono">Strategic angles</div>
+                  <div className="label-mono">
+                    Strategic angles
+                    <span className="count">click <Star size={10} style={{ verticalAlign: "middle" }} /> to prioritize - we'll bias the architecture toward starred angles</span>
+                  </div>
                   <div className="strategy-grid">
                     <div className="angle-col">
                       <h4>Pain <em>problems</em></h4>
-                      {brief.angles.pain.map((a, i) => (
-                        <div key={i} className="angle-card pain">
-                          <p className="angle-card-title">{a.title}</p>
-                          <p className="angle-card-desc">{a.desc}</p>
-                        </div>
-                      ))}
+                      {brief.angles.pain.map((a, i) => {
+                        const isPrio = prioritizedAngles.includes(a.title);
+                        return (
+                          <div key={i} className={classNames("angle-card pain", isPrio && "prioritized")}>
+                            <button
+                              className="angle-prio-btn"
+                              title={isPrio ? "Remove priority" : "Mark as priority"}
+                              onClick={() => {
+                                setPrioritizedAngles((prev) => prev.includes(a.title) ? prev.filter((x) => x !== a.title) : [...prev, a.title]);
+                              }}
+                            >
+                              {isPrio ? <Star size={13} fill="currentColor" /> : <StarOff size={13} />}
+                            </button>
+                            <p className="angle-card-title">{a.title}</p>
+                            <p className="angle-card-desc">{a.desc}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="angle-col">
                       <h4>Aspiration <em>outcomes</em></h4>
-                      {brief.angles.aspiration.map((a, i) => (
-                        <div key={i} className="angle-card aspire">
-                          <p className="angle-card-title">{a.title}</p>
-                          <p className="angle-card-desc">{a.desc}</p>
-                        </div>
-                      ))}
+                      {brief.angles.aspiration.map((a, i) => {
+                        const isPrio = prioritizedAngles.includes(a.title);
+                        return (
+                          <div key={i} className={classNames("angle-card aspire", isPrio && "prioritized")}>
+                            <button
+                              className="angle-prio-btn"
+                              title={isPrio ? "Remove priority" : "Mark as priority"}
+                              onClick={() => {
+                                setPrioritizedAngles((prev) => prev.includes(a.title) ? prev.filter((x) => x !== a.title) : [...prev, a.title]);
+                              }}
+                            >
+                              {isPrio ? <Star size={13} fill="currentColor" /> : <StarOff size={13} />}
+                            </button>
+                            <p className="angle-card-title">{a.title}</p>
+                            <p className="angle-card-desc">{a.desc}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
 
+                {discoveredPages.length > 0 && (
+                  <div className="brief-section">
+                    <button
+                      type="button"
+                      className="context-toggle"
+                      onClick={() => setPagesOpen((o) => !o)}
+                    >
+                      <span className="context-toggle-chev">{pagesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+                      <Globe size={13} style={{ color: "var(--accent)" }} />
+                      <span>Pages on this site</span>
+                      <span className="context-toggle-meta">
+                        {selectedPages.length}/{discoveredPages.length} selected as candidate landing pages
+                      </span>
+                    </button>
+                    {pagesOpen && (
+                      <div className="pages-panel">
+                        <div className="pages-panel-actions">
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setSelectedPages(discoveredPages.map((p) => p.url))}
+                          >
+                            Select all
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setSelectedPages([])}
+                          >
+                            Clear
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setSelectedPages(discoveredPages.filter((p) => p.scraped).map((p) => p.url))}
+                          >
+                            Reset to scraped
+                          </button>
+                          <span className="context-helper">selected pages get preferred as landing-path candidates by the architect</span>
+                        </div>
+                        <div className="pages-list">
+                          {discoveredPages.map((p) => {
+                            const checked = selectedPages.includes(p.url);
+                            return (
+                              <label key={p.url} className={classNames("page-row", checked && "checked")}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedPages((prev) => prev.includes(p.url) ? prev.filter((x) => x !== p.url) : [...prev, p.url]);
+                                  }}
+                                />
+                                <span className="page-path">{p.path}</span>
+                                {p.scraped && <span className="page-flag" title="content scraped for context">scraped</span>}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="brief-section">
-                  <div className="label-mono">Angle lean <span className="count">{leanValue}% aspiration</span></div>
+                  <div className="label-mono">Angle lean <span className="count">{leanValue}% aspiration · <Info size={10} style={{ verticalAlign: "middle" }} /> shifts pain↔aspiration framing in copy + architecture</span></div>
                   <div className="lean-slider">
                     <input
                       className="lean-input"
@@ -1058,6 +1235,7 @@ export default function Page() {
                               prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
                             );
                           }}
+                          title={tip(c)}
                         >
                           <div className="channel-card-h">
                             <span className="channel-card-name">{c}</span>
@@ -1072,12 +1250,37 @@ export default function Page() {
                   </div>
                 </div>
 
+                <div className="brief-section">
+                  <div className="label-mono">Number of campaigns</div>
+                  <div className="seg seg-wide">
+                    {[
+                      { v: 0, label: "Auto" },
+                      { v: 2, label: "2" },
+                      { v: 3, label: "3" },
+                      { v: 4, label: "4" },
+                      { v: 5, label: "5" },
+                      { v: 6, label: "6" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.v}
+                        className={classNames("seg-btn", campaignCount === opt.v && "active")}
+                        onClick={() => setCampaignCount(opt.v)}
+                        title={opt.v === 0 ? "Let the AI decide (2-4)" : `Force exactly ${opt.v} campaigns`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="action-row">
                   <span className="summary">
-                    <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SD"}</strong>
+                    <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SA"}</strong>
+                    {prioritizedAngles.length > 0 && <> · <strong>{prioritizedAngles.length}</strong> angle{prioritizedAngles.length === 1 ? "" : "s"} starred</>}
+                    {selectedPages.length > 0 && <> · <strong>{selectedPages.length}</strong> page{selectedPages.length === 1 ? "" : "s"} selected</>}
                   </span>
                   <button className="btn primary" onClick={handleProposeArchitecture} disabled={!!loading}>
-                    Architect →
+                    <Sparkles size={13} /> Architect <ArrowRight size={13} />
                   </button>
                 </div>
               </>
@@ -1174,6 +1377,7 @@ export default function Page() {
                             <button
                               key={s}
                               className={classNames("seg-btn", c.structure === s && "active")}
+                              title={tip(s)}
                               onClick={() => updateCampaign(c.id, { structure: s })}
                             >
                               {s}
@@ -1188,6 +1392,7 @@ export default function Page() {
                             <button
                               key={s}
                               className={classNames("seg-btn", c.channelType === s && "active")}
+                              title={tip(s)}
                               onClick={() => updateCampaign(c.id, { channelType: s })}
                             >
                               {s}
@@ -1222,7 +1427,7 @@ export default function Page() {
                     )}
                   </div>
                 ))}
-                <button className="add-campaign-btn" onClick={addCampaign}>+ Add campaign</button>
+                <button className="add-campaign-btn" onClick={addCampaign}><Plus size={12} /> Add campaign</button>
               </div>
             </div>
           )}
@@ -1263,6 +1468,7 @@ export default function Page() {
                                 k.match === "EXC" && "exact",
                                 k.match === "BRD" && "broad"
                               )}
+                              title={`${tip(k.match)} (click to cycle)`}
                               onClick={() => updateKeyword(c.id, g.id, k.id, { match: cycleMatch(k.match) })}
                             >
                               {k.match}
@@ -1358,8 +1564,8 @@ export default function Page() {
                         <span className="campaign-name-input">{c.name}</span>
                       </div>
                       <div className="campaign-col-h-row2">
-                        <span className="kw-match phrase">{c.structure}</span>
-                        <span className="kw-match exact">{c.channelType}</span>
+                        <span className="kw-match phrase" title={tip(c.structure)}>{c.structure}</span>
+                        <span className="kw-match exact" title={tip(c.channelType)}>{c.channelType}</span>
                         <span className="arch-stat">${c.budget}/d</span>
                       </div>
                     </div>
@@ -1385,7 +1591,7 @@ export default function Page() {
                                   k.match === "PHR" && "phrase",
                                   k.match === "EXC" && "exact",
                                   k.match === "BRD" && "broad"
-                                )}>
+                                )} title={tip(k.match)}>
                                   {k.match}
                                 </span>
                                 <span className="kw-text">{k.text}</span>
@@ -1406,7 +1612,7 @@ export default function Page() {
                   <strong>{totalKeywords}</strong> keywords ·{" "}
                   <strong>{fmtMoney(totalMonthlyBudget)}</strong>/mo
                 </span>
-                <button className="btn primary" onClick={() => setStage("generate")}>Generate copy →</button>
+                <button className="btn primary" onClick={() => setStage("generate")}>Generate copy <ArrowRight size={13} /></button>
               </div>
             </div>
           )}
@@ -1430,7 +1636,7 @@ export default function Page() {
                 <div className="gen-header-actions">
                   <span className="gen-progress">{adGroupsWithCopy}/{adGroupsTotal} done</span>
                   <button className="btn primary" onClick={handleGenerateAll} disabled={!!loading}>
-                    Generate all
+                    <Wand2 size={13} /> Generate all
                   </button>
                 </div>
               </div>
@@ -1472,7 +1678,7 @@ export default function Page() {
                       </div>
                     </div>
                     <div className="serp-hero-headline">
-                      {serpHeadlines.map((h) => dkiVisible(h.text)).join("  ·  ")}
+                      {serpHeadlines.map((h) => dkiVisible(h.text)).join(" | ")}
                     </div>
                     <p className="serp-hero-desc">{serpDesc?.text || ""}</p>
                   </div>
@@ -1599,7 +1805,7 @@ export default function Page() {
           </div>
           <div className="brief">
             <button className="btn primary" onClick={handleGenerateReviewLink} disabled={!campaigns.length}>
-              Generate review link →
+              <Send size={13} /> Generate review link
             </button>
             {!campaigns.length && (
               <p className="text-helper" style={{ marginTop: 12 }}>You need to architect a build first.</p>
@@ -1616,7 +1822,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.3 · BRAIVE Ads</span>
+        <span className="status-section">v0.4 · BRAIVE Ads</span>
       </div>
 
       {/* LOADING OVERLAY */}
