@@ -1,86 +1,207 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-// ============= TYPES =============
-type MatchType = "phrase" | "exact" | "broad";
-type Structure = "MKAG" | "SKAG" | "STAG" | "Hagakure" | "Custom";
-type ChannelType = "Search" | "PMax" | "Demand";
-type Stage = "brief" | "architect" | "generate" | "review";
-type ArchSubStage = "campaigns" | "keywords" | "targeting" | "review";
-type BidStrategy = "Max conversions" | "Max conversion value" | "Target CPA" | "Target ROAS" | "Max clicks" | "Manual CPC";
-type Angle = "benefit" | "usp" | "urgency" | "proof" | "qualifier" | "cta";
+/* ============================================================
+   TYPES
+   ============================================================ */
 
-interface Keyword { text: string; match: MatchType; }
-interface AdGroup { id: string; name: string; aiNote: string | null; keywords: Keyword[]; landingPath?: string; copy?: AdGroupCopy; }
-interface AdGroupCopy { headlines: Headline[]; descriptions: Description[]; paths: string[]; sitelinks: Sitelink[]; }
-interface Headline { id: string; text: string; angle: Angle; pin: number | null; length: number; overLimit: boolean; status: string; }
-interface Description { id: string; text: string; angle: Angle; length: number; overLimit: boolean; status: string; }
-interface Sitelink { id: string; title: string; desc1: string; desc2: string; }
-interface Campaign {
-  id: string; name: string; structure: Structure; channelType: ChannelType;
-  accent: string; budget: number; locations: string[]; bidStrategy: BidStrategy;
-  audiences: string[]; negatives: string;
-  aiNote: string | null; adGroups: AdGroup[];
-}
-interface BrandFingerprint { toneOfVoice: string; targetAudience: string; usps: string[]; mustIncludeKeywords: string[]; }
-interface AnglePair { title: string; description: string; }
-interface BriefData { url: string; pagesScraped: number; brand: BrandFingerprint; angles: { pain: AnglePair[]; aspiration: AnglePair[]; }; recommendedLean: number; }
+type Channel = "Search" | "PMax" | "Demand";
+type Match = "PHR" | "EXC" | "BRD";
 
-const matchTypeOrder: MatchType[] = ["phrase", "exact", "broad"];
-const matchLabels: Record<MatchType, string> = { phrase: "PHR", exact: "EXC", broad: "BRD" };
-const structDescs: Record<Structure, string> = {
-  MKAG: "Themed ad groups, multiple keywords per group.",
-  SKAG: "Single Keyword Ad Group. Maximum control.",
-  STAG: "Single Theme Ad Group. 5–15 tightly related keywords.",
-  Hagakure: "Broad ad groups, lean on smart bidding.",
-  Custom: "Define your own naming & grouping rules.",
+type AngleEntry = { title: string; desc: string };
+type Brand = {
+  toneOfVoice: string;
+  targetAudience: string;
+  usps: string[];
+  mustIncludeKeywords: string[];
 };
-const channelTypeDescs: Record<ChannelType, string> = { Search: "Keyword RSAs", PMax: "Cross-network", Demand: "YouTube + Discover" };
-const bidStrategies: BidStrategy[] = ["Max conversions", "Max conversion value", "Target CPA", "Target ROAS", "Max clicks", "Manual CPC"];
+type Angles = { pain: AngleEntry[]; aspiration: AngleEntry[] };
 
-// ============= MAIN =============
+type Brief = {
+  brand: Brand;
+  angles: Angles;
+  recommendedLean: number;
+  pagesScraped?: number;
+};
+
+type Keyword = { id: string; text: string; match: Match; estimatedVolume?: string };
+type Headline = { id?: string; text: string; angle: string; pin: number | null; length?: number; overLimit?: boolean; isDki?: boolean };
+type Description = { id?: string; text: string; angle: string; pin: number | null; length?: number; overLimit?: boolean };
+type Sitelink = { id?: string; text: string; desc1: string; desc2: string };
+type Copy = { headlines: Headline[]; descriptions: Description[]; paths: string[]; sitelinks: Sitelink[] };
+
+type AdGroup = {
+  id: string;
+  name: string;
+  landingPath: string;
+  keywords: Keyword[];
+  copy?: Copy;
+};
+
+type Campaign = {
+  id: string;
+  name: string;
+  structure: "MKAG" | "SKAG" | "STAG" | "Hagakure" | "Custom";
+  channelType: Channel;
+  budget: number;
+  locations: string[];
+  bidStrategy: string;
+  audiences: string[];
+  negatives: string[];
+  aiNote: string;
+  adGroups: AdGroup[];
+  accent?: string;
+};
+
+type Stage = "brief" | "architect" | "generate" | "review";
+type ArchSub = "campaigns" | "keywords" | "targeting" | "review";
+
+type ErrorState = { message: string; debug?: any } | null;
+type ToastState = { type: "success" | "error" | "info"; message: string } | null;
+type LoadingState = { message: string; sub?: string } | null;
+
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
+const STRUCTURE_OPTIONS = ["MKAG", "SKAG", "STAG", "Hagakure", "Custom"] as const;
+const CHANNEL_OPTIONS: Channel[] = ["Search", "PMax", "Demand"];
+const MATCH_OPTIONS: Match[] = ["PHR", "EXC", "BRD"];
+const BID_STRATEGIES = [
+  "Maximise conversions",
+  "Maximise conversion value",
+  "Target CPA",
+  "Target ROAS",
+  "Manual CPC",
+  "Maximise clicks",
+];
+
+const STAGE_ORDER: Stage[] = ["brief", "architect", "generate", "review"];
+const ARCH_SUBS: { key: ArchSub; label: string; sub: string }[] = [
+  { key: "campaigns", label: "Campaigns", sub: "01" },
+  { key: "keywords", label: "Keywords", sub: "02" },
+  { key: "targeting", label: "Targeting", sub: "03" },
+  { key: "review", label: "Review", sub: "04" },
+];
+
+const PERSIST_KEY = "braive_ads_state_v1";
+
+const ACCENTS = ["#2541E8", "#0F9D6F", "#1F6E8C", "#C24A1F"];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+const rid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
+
+function dkiVisible(text: string) {
+  const m = text.match(/^\{(?:KeyWord|Keyword|KEYWORD):([^}]+)\}$/);
+  return m ? m[1] : text;
+}
+
+function cycleMatch(m: Match): Match {
+  const idx = MATCH_OPTIONS.indexOf(m);
+  return MATCH_OPTIONS[(idx + 1) % MATCH_OPTIONS.length];
+}
+
+function classNames(...xs: (string | false | null | undefined)[]) {
+  return xs.filter(Boolean).join(" ");
+}
+
+/* ============================================================
+   PAGE
+   ============================================================ */
+
 export default function Page() {
+  // Persisted
   const [stage, setStage] = useState<Stage>("brief");
-  const [archSub, setArchSub] = useState<ArchSubStage>("campaigns");
+  const [archSub, setArchSub] = useState<ArchSub>("campaigns");
+  const [briefUrl, setBriefUrl] = useState("");
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [leanValue, setLeanValue] = useState(50);
+  const [channels, setChannels] = useState<Channel[]>(["Search"]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  // Brief state
-  const [briefUrl, setBriefUrl] = useState("https://gjgardner.com.au");
-  const [brief, setBrief] = useState<BriefData | null>(null);
-  const [leanValue, setLeanValue] = useState(35);
-  const [channels, setChannels] = useState({ search: true, pmax: true, demand: false });
-
-  // Loading + toast
-  const [loading, setLoading] = useState<{ msg: string; sub?: string } | null>(null);
-  const [toast, setToast] = useState<{ msg: string; type: "error" | "success" } | null>(null);
-
-  // Generate stage
   const [activeAdGroupKey, setActiveAdGroupKey] = useState<string | null>(null);
-  const [previewCombo, setPreviewCombo] = useState(0);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const paletteInputRef = useRef<HTMLInputElement>(null);
 
+  // UI-only
+  const [error, setError] = useState<ErrorState>(null);
+  const [toast, setToast] = useState<ToastState>(null);
+  const [loading, setLoading] = useState<LoadingState>(null);
+  const [health, setHealth] = useState<"checking" | "ok" | "down">("checking");
+  const [healthInfo, setHealthInfo] = useState<any>(null);
+  const [reviewModal, setReviewModal] = useState<{ open: boolean; token?: string; url?: string }>({ open: false });
+  const [debugOpen, setDebugOpen] = useState(false);
+  const restoredRef = useRef(false);
+
+  /* ----- Restore from localStorage on mount ----- */
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setPaletteOpen(true); }
-      if (e.key === "Escape") setPaletteOpen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(PERSIST_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.briefUrl) setBriefUrl(s.briefUrl);
+        if (s.brief) setBrief(s.brief);
+        if (typeof s.leanValue === "number") setLeanValue(s.leanValue);
+        if (Array.isArray(s.channels)) setChannels(s.channels);
+        if (Array.isArray(s.campaigns)) setCampaigns(s.campaigns);
+        if (s.stage) setStage(s.stage);
+        if (s.archSub) setArchSub(s.archSub);
+        if (s.activeAdGroupKey) setActiveAdGroupKey(s.activeAdGroupKey);
+      }
+    } catch {}
+    restoredRef.current = true;
   }, []);
-  useEffect(() => { if (paletteOpen) setTimeout(() => paletteInputRef.current?.focus(), 50); }, [paletteOpen]);
 
-  const showToast = (msg: string, type: "error" | "success" = "error") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  /* ----- Persist on change ----- */
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (typeof window === "undefined") return;
+    try {
+      const payload = { briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey };
+      localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey]);
 
-  // ============= API CALLS =============
-  const scrapeUrl = async () => {
-    if (!briefUrl) { showToast("Enter a URL first"); return; }
-    setLoading({ msg: "Scraping site...", sub: "fetching pages, extracting brand voice, finding angles" });
+  /* ----- Health check on mount ----- */
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        setHealth(j.ok ? "ok" : "down");
+        setHealthInfo(j);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setHealth("down");
+        setHealthInfo({ error: String(e) });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /* ----- Toast auto-dismiss ----- */
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /* ============================================================
+     ACTIONS
+     ============================================================ */
+
+  async function handleScrapeBrief() {
+    if (!briefUrl.trim()) {
+      setError({ message: "Enter a URL first" });
+      return;
+    }
+    setError(null);
+    setLoading({ message: "Scraping site", sub: "Reading homepage and 4 inner pages..." });
     try {
       const res = await fetch("/api/scrape-brief", {
         method: "POST",
@@ -88,24 +209,34 @@ export default function Page() {
         body: JSON.stringify({ url: briefUrl }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Scrape failed");
-      setBrief(data);
-      setLeanValue(data.recommendedLean ?? 35);
-      showToast(`Scraped ${data.pagesScraped} pages`, "success");
+      if (!res.ok || data.error) {
+        setError({ message: data.error || `HTTP ${res.status}`, debug: data.debug });
+        return;
+      }
+      const b: Brief = { ...data.brief, pagesScraped: data.pagesScraped };
+      setBrief(b);
+      setLeanValue(b.recommendedLean ?? 50);
+      setToast({ type: "success", message: `Brief extracted from ${data.pagesScraped} page${data.pagesScraped === 1 ? "" : "s"}` });
     } catch (err: any) {
-      showToast(err.message);
-    } finally { setLoading(null); }
-  };
+      setError({ message: err?.message || String(err), debug: { exception: String(err) } });
+    } finally {
+      setLoading(null);
+    }
+  }
 
-  const proposeArchitecture = async () => {
-    if (!brief) { showToast("Run the scrape first"); return; }
-    setLoading({ msg: "Architecting account...", sub: "campaigns, ad groups, keywords, audiences" });
+  async function handleProposeArchitecture() {
+    if (!brief) {
+      setError({ message: "Need a brief first" });
+      return;
+    }
+    setError(null);
+    setLoading({ message: "Proposing architecture", sub: "Opus is sketching campaigns..." });
     try {
       const res = await fetch("/api/propose-architecture", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: brief.url,
+          url: briefUrl,
           brand: brief.brand,
           angles: brief.angles,
           leanPercent: leanValue,
@@ -113,21 +244,29 @@ export default function Page() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Propose failed");
-      setCampaigns(data.campaigns);
+      if (!res.ok || data.error) {
+        setError({ message: data.error || `HTTP ${res.status}`, debug: data.debug });
+        return;
+      }
+      setCampaigns(data.campaigns || []);
       setStage("architect");
       setArchSub("campaigns");
-      showToast(`Proposed ${data.campaigns.length} campaigns`, "success");
+      // pick first ad group
+      const firstC = data.campaigns?.[0];
+      const firstG = firstC?.adGroups?.[0];
+      if (firstC && firstG) setActiveAdGroupKey(`${firstC.id}__${firstG.id}`);
+      setToast({ type: "success", message: `${data.campaigns?.length || 0} campaigns proposed` });
     } catch (err: any) {
-      showToast(err.message);
-    } finally { setLoading(null); }
-  };
+      setError({ message: err?.message || String(err), debug: { exception: String(err) } });
+    } finally {
+      setLoading(null);
+    }
+  }
 
-  const generateCopy = async (cid: string, aid: string) => {
-    const c = campaigns.find(x => x.id === cid);
-    const ag = c?.adGroups.find(a => a.id === aid);
-    if (!c || !ag || !brief) return;
-    setLoading({ msg: `Writing RSA copy...`, sub: `${ag.name} · 15 headlines, 5 descriptions, sitelinks` });
+  async function handleGenerateCopy(campaign: Campaign, adGroup: AdGroup) {
+    if (!brief) return;
+    setError(null);
+    setLoading({ message: "Generating RSA copy", sub: `${adGroup.name}...` });
     try {
       const res = await fetch("/api/generate-copy", {
         method: "POST",
@@ -136,876 +275,1149 @@ export default function Page() {
           brand: brief.brand,
           angles: brief.angles,
           leanPercent: leanValue,
-          campaign: { name: c.name, structure: c.structure },
-          adGroup: { name: ag.name, keywords: ag.keywords, landingPath: ag.landingPath },
+          campaign: { name: campaign.name, structure: campaign.structure, channelType: campaign.channelType },
+          adGroup,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generate failed");
-      setCampaigns(prev => prev.map(c2 => c2.id !== cid ? c2 : {
-        ...c2,
-        adGroups: c2.adGroups.map(ag2 => ag2.id !== aid ? ag2 : { ...ag2, copy: data })
-      }));
-      setActiveAdGroupKey(`${cid}::${aid}`);
-      showToast(`Generated copy for ${ag.name}`, "success");
+      if (!res.ok || data.error) {
+        setError({ message: data.error || `HTTP ${res.status}`, debug: data.debug });
+        return;
+      }
+      const newCopy: Copy = {
+        headlines: data.headlines || [],
+        descriptions: data.descriptions || [],
+        paths: data.paths || [],
+        sitelinks: data.sitelinks || [],
+      };
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaign.id
+            ? { ...c, adGroups: c.adGroups.map((g) => (g.id === adGroup.id ? { ...g, copy: newCopy } : g)) }
+            : c
+        )
+      );
+      setToast({ type: "success", message: `Copy generated for ${adGroup.name}` });
     } catch (err: any) {
-      showToast(err.message);
-    } finally { setLoading(null); }
-  };
-
-  const generateAllCopy = async () => {
-    if (!brief) return;
-    const total = campaigns.reduce((s, c) => s + c.adGroups.length, 0);
-    let done = 0;
-    for (const c of campaigns) {
-      for (const ag of c.adGroups) {
-        if (ag.copy) { done++; continue; }
-        setLoading({ msg: `Writing RSA copy ${done + 1}/${total}...`, sub: ag.name });
-        try {
-          const res = await fetch("/api/generate-copy", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              brand: brief.brand,
-              angles: brief.angles,
-              leanPercent: leanValue,
-              campaign: { name: c.name, structure: c.structure },
-              adGroup: { name: ag.name, keywords: ag.keywords, landingPath: ag.landingPath },
-            }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            const cidLocal = c.id, aidLocal = ag.id;
-            setCampaigns(prev => prev.map(c2 => c2.id !== cidLocal ? c2 : {
-              ...c2,
-              adGroups: c2.adGroups.map(ag2 => ag2.id !== aidLocal ? ag2 : { ...ag2, copy: data })
-            }));
-          }
-        } catch {}
-        done++;
-      }
+      setError({ message: err?.message || String(err), debug: { exception: String(err) } });
+    } finally {
+      setLoading(null);
     }
-    setLoading(null);
-    // pick first ad group as active
-    const first = campaigns[0]?.adGroups[0];
-    if (first) setActiveAdGroupKey(`${campaigns[0].id}::${first.id}`);
-    setStage("generate");
-    showToast(`Generated copy for ${total} ad groups`, "success");
-  };
+  }
 
-  // ============= MUTATIONS =============
-  const updateCampaign = (cid: string, fn: (c: Campaign) => Campaign) =>
-    setCampaigns(prev => prev.map(c => c.id === cid ? fn(c) : c));
-  const setStructure = (cid: string, s: Structure) => {
-    updateCampaign(cid, c => {
-      let adGroups = c.adGroups;
-      if (s === "SKAG" && adGroups.length > 0) {
-        adGroups = adGroups.flatMap(ag => ag.keywords.map(kw => ({
-          id: `ag_${Math.random().toString(36).slice(2, 8)}`,
-          name: `${kw.text} | SKAG`, aiNote: null, landingPath: ag.landingPath,
-          keywords: [kw],
-        })));
+  async function handleExport(format: "xlsx" | "csv") {
+    setError(null);
+    setLoading({ message: `Building ${format.toUpperCase()}`, sub: "Packaging campaigns..." });
+    try {
+      const res = await fetch(`/api/export-${format}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaigns,
+          buildName: brief?.brand?.toneOfVoice ? "BRAIVE Ads Build" : "BRAIVE Ads Build",
+          baseUrl: briefUrl,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError({ message: data.error || `HTTP ${res.status}`, debug: data });
+        return;
       }
-      return { ...c, structure: s, adGroups };
-    });
-  };
-  const setChannelType = (cid: string, ct: ChannelType) => updateCampaign(cid, c => ({ ...c, channelType: ct }));
-  const cycleMatch = (cid: string, aid: string, kwIdx: number) => updateCampaign(cid, c => ({
-    ...c, adGroups: c.adGroups.map(ag => ag.id !== aid ? ag : {
-      ...ag, keywords: ag.keywords.map((kw, i) => i !== kwIdx ? kw : { ...kw, match: matchTypeOrder[(matchTypeOrder.indexOf(kw.match) + 1) % 3] })
-    })
-  }));
-  const removeKw = (cid: string, aid: string, kwIdx: number) => updateCampaign(cid, c => ({
-    ...c, adGroups: c.adGroups.map(ag => ag.id !== aid ? ag : { ...ag, keywords: ag.keywords.filter((_, i) => i !== kwIdx) })
-  }));
-  const addKwViaInput = (cid: string, aid: string, text: string) => {
-    if (!text.trim()) return;
-    updateCampaign(cid, c => ({
-      ...c, adGroups: c.adGroups.map(ag => ag.id !== aid ? ag : { ...ag, keywords: [...ag.keywords, { text: text.trim(), match: "phrase" }] })
-    }));
-  };
-  const addAdGroup = (cid: string) => updateCampaign(cid, c => ({
-    ...c, adGroups: [...c.adGroups, { id: `ag_new_${Math.random().toString(36).slice(2, 8)}`, name: `New ad group | ${c.structure}`, aiNote: null, keywords: [] }]
-  }));
-  const removeAdGroup = (cid: string, aid: string) => updateCampaign(cid, c => ({ ...c, adGroups: c.adGroups.filter(ag => ag.id !== aid) }));
-  const addCampaign = () => setCampaigns(prev => [...prev, {
-    id: `cm_new_${Math.random().toString(36).slice(2, 8)}`, name: "New campaign | SD",
-    structure: "MKAG", channelType: "Search", accent: "#7A7A85",
-    budget: 1000, locations: ["All locations"], bidStrategy: "Max clicks",
-    audiences: [], negatives: "", aiNote: null, adGroups: [],
-  }]);
-  const removeCampaign = (cid: string) => setCampaigns(prev => prev.filter(c => c.id !== cid));
-  const updateField = <K extends keyof Campaign>(cid: string, field: K, value: Campaign[K]) =>
-    updateCampaign(cid, c => ({ ...c, [field]: value }));
-  const updateAdGroupField = <K extends keyof AdGroup>(cid: string, aid: string, field: K, value: AdGroup[K]) =>
-    updateCampaign(cid, c => ({ ...c, adGroups: c.adGroups.map(ag => ag.id === aid ? { ...ag, [field]: value } : ag) }));
-  const addAudience = (cid: string, l: string) => l.trim() && updateCampaign(cid, c => ({ ...c, audiences: [...c.audiences, l.trim()] }));
-  const removeAudience = (cid: string, i: number) => updateCampaign(cid, c => ({ ...c, audiences: c.audiences.filter((_, x) => x !== i) }));
-  const addLocation = (cid: string, l: string) => l.trim() && updateCampaign(cid, c => ({ ...c, locations: [...c.locations, l.trim()] }));
-  const removeLocation = (cid: string, i: number) => updateCampaign(cid, c => ({ ...c, locations: c.locations.filter((_, x) => x !== i) }));
-  const updateHeadline = (cid: string, aid: string, hi: number, text: string) => updateCampaign(cid, c => ({
-    ...c, adGroups: c.adGroups.map(ag => {
-      if (ag.id !== aid || !ag.copy) return ag;
-      const headlines = ag.copy.headlines.map((h, i) => i !== hi ? h : { ...h, text, length: text.length, overLimit: text.length > 30 });
-      return { ...ag, copy: { ...ag.copy, headlines } };
-    })
-  }));
-  const updateDescription = (cid: string, aid: string, di: number, text: string) => updateCampaign(cid, c => ({
-    ...c, adGroups: c.adGroups.map(ag => {
-      if (ag.id !== aid || !ag.copy) return ag;
-      const descriptions = ag.copy.descriptions.map((d, i) => i !== di ? d : { ...d, text, length: text.length, overLimit: text.length > 90 });
-      return { ...ag, copy: { ...ag.copy, descriptions } };
-    })
-  }));
-
-  const toggleCollapsed = (id: string) => {
-    setCollapsed(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  };
-
-  // ============= COMPUTED =============
-  const totalAG = campaigns.reduce((s, c) => s + c.adGroups.length, 0);
-  const totalKW = campaigns.reduce((s, c) => s + c.adGroups.reduce((s2, ag) => s2 + ag.keywords.length, 0), 0);
-  const totalBudget = campaigns.reduce((s, c) => s + c.budget, 0);
-  const stages: Stage[] = ["brief", "architect", "generate", "review"];
-  const stageIdx = stages.indexOf(stage);
-  const archSubStages: ArchSubStage[] = ["campaigns", "keywords", "targeting", "review"];
-  const archSubIdx = archSubStages.indexOf(archSub);
-  const archSubMeta: Record<ArchSubStage, { title: string; sub: string }> = {
-    campaigns: { title: "Campaigns", sub: "Name & structure" },
-    keywords: { title: "Keywords", sub: "Group & match" },
-    targeting: { title: "Targeting", sub: "Budget & audience" },
-    review: { title: "Review", sub: "Confirm & generate" },
-  };
-
-  const briefDone = !!brief;
-  const architectDone = campaigns.length > 0;
-  const generateDone = campaigns.some(c => c.adGroups.some(ag => ag.copy));
-
-  const buildName = useMemo(() => {
-    if (brief?.url) {
-      try { return new URL(brief.url).hostname.replace("www.", ""); } catch { return "current build"; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const cd = res.headers.get("content-disposition") || "";
+      const m = cd.match(/filename="([^"]+)"/);
+      a.download = m ? m[1] : `braive-ads.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setToast({ type: "success", message: `${format.toUpperCase()} downloaded` });
+    } catch (err: any) {
+      setError({ message: err?.message || String(err), debug: { exception: String(err) } });
+    } finally {
+      setLoading(null);
     }
-    return "current build";
-  }, [brief?.url]);
+  }
 
-  // Active ad group for Generate stage
-  const activeAdGroup = useMemo(() => {
-    if (!activeAdGroupKey) return null;
-    const [cid, aid] = activeAdGroupKey.split("::");
-    const c = campaigns.find(x => x.id === cid);
-    if (!c) return null;
-    const ag = c.adGroups.find(x => x.id === aid);
-    if (!ag) return null;
-    return { campaign: c, adGroup: ag };
-  }, [activeAdGroupKey, campaigns]);
-
-  // SERP preview combo
-  const previewCard = useMemo(() => {
-    if (!activeAdGroup?.adGroup.copy) return null;
-    const { headlines, descriptions } = activeAdGroup.adGroup.copy;
-    const seed = previewCombo;
-    const h1 = headlines.find(h => h.pin === 1) || headlines[0];
-    const others = headlines.filter(h => h.pin !== 1);
-    const h2 = others[seed % others.length] || headlines[1];
-    const h3 = others[(seed + 3) % others.length] || headlines[2];
-    const d1 = descriptions[seed % descriptions.length];
-    const d2 = descriptions[(seed + 1) % descriptions.length];
-    return {
-      headline: [h1, h2, h3].filter(Boolean).map(h => {
-        const m = h.text.match(/^\{KeyWord:([^}]+)\}$/);
-        return m ? m[1] : h.text;
-      }).join(" · "),
-      description: [d1?.text, d2?.text].filter(Boolean).join(" "),
+  function handleGenerateReviewLink() {
+    if (!campaigns.length) {
+      setError({ message: "Need an architected build before generating a review link" });
+      return;
+    }
+    const token = rid("rv").replace(/^rv_/, "");
+    const session = {
+      buildName: "BRAIVE Ads Build",
+      brandName: undefined,
+      baseUrl: briefUrl,
+      campaigns,
+      createdAt: new Date().toISOString(),
     };
-  }, [activeAdGroup, previewCombo]);
+    try {
+      localStorage.setItem("braive_review_" + token, JSON.stringify(session));
+    } catch (e: any) {
+      setError({ message: "Could not store review session: " + e?.message, debug: { exception: String(e) } });
+      return;
+    }
+    const url = `${window.location.origin}/r/${token}`;
+    setReviewModal({ open: true, token, url });
+  }
 
-  return (
-    <div className="app-layout">
-      {/* SIDEBAR — current build's stages */}
+  function handleReset() {
+    if (!confirm("Reset all state? This clears the current build from local storage.")) return;
+    try {
+      localStorage.removeItem(PERSIST_KEY);
+    } catch {}
+    setBriefUrl("");
+    setBrief(null);
+    setLeanValue(50);
+    setChannels(["Search"]);
+    setCampaigns([]);
+    setActiveAdGroupKey(null);
+    setStage("brief");
+    setArchSub("campaigns");
+    setError(null);
+  }
+
+  /* ============================================================
+     SIDEBAR
+     ============================================================ */
+
+  function Sidebar() {
+    const stageStatus = (s: Stage): "active" | "done" | "todo" => {
+      const a = STAGE_ORDER.indexOf(stage);
+      const b = STAGE_ORDER.indexOf(s);
+      if (b < a) return "done";
+      if (b === a) return "active";
+      return "todo";
+    };
+    return (
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="brand-mark"></div>
-          <div className="brand-text"><span className="brand-name">BRAIVE</span><span className="brand-product">Ads</span></div>
+          <div className="brand-mark" />
+          <div className="brand-text">
+            <span className="brand-name">BRAIVE</span>
+            <span className="brand-product">Ads</span>
+          </div>
         </div>
 
         <div className="nav-section">
-          <button className="nav-item"><span className="nav-icon">⌂</span>Home<span className="nav-shortcut">⌘1</span></button>
-          <button className="nav-item"><span className="nav-icon">▣</span>Brands</button>
+          <button className="nav-item" onClick={handleReset}>
+            <span className="nav-icon">⌂</span>
+            <span>Home / Brands</span>
+          </button>
         </div>
 
         <div className="nav-section">
-          <p className="nav-label">{buildName}</p>
+          <div className="nav-label">Current build</div>
           <div className="sidebar-stage-nav">
-            <button className={`stage-nav-item ${stage === "brief" ? "active" : briefDone ? "done" : ""}`} onClick={() => setStage("brief")}>
-              <span className="stage-nav-num">1</span><span style={{ flex: 1 }}>Brief</span>
-            </button>
-            <button className={`stage-nav-item ${stage === "architect" ? "active" : architectDone ? "done" : ""}`} onClick={() => architectDone && setStage("architect")} disabled={!architectDone}>
-              <span className="stage-nav-num">2</span><span style={{ flex: 1, opacity: !architectDone ? 0.5 : 1 }}>Architect</span>
-            </button>
-            {stage === "architect" && architectDone && (
-              <div className="stage-nav-substages">
-                {archSubStages.map((s, i) => (
-                  <button key={s} className={`substage-nav-item ${archSub === s ? "active" : i < archSubIdx ? "done" : ""}`} onClick={() => setArchSub(s)}>
-                    <span className="substage-nav-dot"></span>
-                    <span>{archSubMeta[s].title}</span>
+            {STAGE_ORDER.map((s, i) => {
+              const status = stageStatus(s);
+              const labels: Record<Stage, string> = {
+                brief: "Brief",
+                architect: "Architect",
+                generate: "Generate",
+                review: "Client review",
+              };
+              return (
+                <div key={s}>
+                  <button
+                    className={classNames(
+                      "stage-nav-item",
+                      status === "active" && "active",
+                      status === "done" && "done"
+                    )}
+                    onClick={() => {
+                      // only allow navigation to done or current
+                      if (status !== "todo" || (s === "architect" && campaigns.length) || (s === "generate" && campaigns.length) || (s === "review" && campaigns.length)) {
+                        setStage(s);
+                      }
+                    }}
+                  >
+                    <span className="stage-nav-num">{i + 1}</span>
+                    <span>{labels[s]}</span>
                   </button>
-                ))}
-              </div>
-            )}
-            <button className={`stage-nav-item ${stage === "generate" ? "active" : generateDone ? "done" : ""}`} onClick={() => architectDone && setStage("generate")} disabled={!architectDone}>
-              <span className="stage-nav-num">3</span><span style={{ flex: 1, opacity: !architectDone ? 0.5 : 1 }}>Generate</span>
-            </button>
-            <button className={`stage-nav-item ${stage === "review" ? "active" : ""}`} onClick={() => generateDone && setStage("review")} disabled={!generateDone}>
-              <span className="stage-nav-num">4</span><span style={{ flex: 1, opacity: !generateDone ? 0.5 : 1 }}>Client review</span>
-            </button>
+                  {s === "architect" && stage === "architect" && (
+                    <div className="stage-nav-substages">
+                      {ARCH_SUBS.map((sub) => (
+                        <button
+                          key={sub.key}
+                          className={classNames("substage-nav-item", archSub === sub.key && "active")}
+                          onClick={() => setArchSub(sub.key)}
+                        >
+                          <span className="substage-nav-dot" />
+                          <span>{sub.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         <div className="sidebar-footer">
           <div className="user-card">
             <div className="user-avatar">MT</div>
-            <div><p className="user-name">Matt Travers</p><p className="user-org">BRAIVE</p></div>
+            <div>
+              <p className="user-name">Matt Travers</p>
+              <p className="user-org">BRAIVE</p>
+            </div>
           </div>
         </div>
       </aside>
+    );
+  }
 
-      <div className="main">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span className="breadcrumb-segment">Brands</span>
-            <span className="breadcrumb-sep">/</span>
-            <span className="breadcrumb-segment active">{buildName}</span>
-          </div>
-          <div className="topbar-search" onClick={() => setPaletteOpen(true)}>
-            <span className="topbar-search-icon">⌕</span>
-            <span className="topbar-search-text">Search or run command...</span>
-            <span className="kbd">⌘K</span>
-          </div>
-          <div className="topbar-actions">
-            {brief && <span className="ai-hint">AI · {brief.pagesScraped} pages scraped</span>}
-            <button className="icon-btn">⚙</button>
-          </div>
-        </header>
+  /* ============================================================
+     TOPBAR
+     ============================================================ */
 
-        {/* BRIEF */}
-        <div className={`view ${stage === "brief" ? "active" : ""}`}>
-          <div className="brief">
-            <div className="stage-header">
-              <div>
-                <p className="stage-eyebrow">Stage 01 · Brief</p>
-                <h1 className="stage-title">Where do you want to <em>send traffic?</em></h1>
-                <p className="stage-sub">One URL. We&apos;ll crawl it, extract brand voice, surface what you&apos;re up against, and propose strategic angles.</p>
-              </div>
-            </div>
-
-            <div className="brief-input-row">
-              <input className="text-input" type="url" value={briefUrl} onChange={e => setBriefUrl(e.target.value)} placeholder="https://yourdomain.com" />
-              <button className="btn primary" onClick={scrapeUrl} disabled={!!loading}>Scrape site</button>
-            </div>
-            <p className="text-helper">Drop in any URL · we crawl up to 5 pages · 8s avg · powered by Claude Sonnet 4.6</p>
-
-            {!brief && !loading && (
-              <div className="brief-empty-state" style={{ marginTop: 16 }}>
-                <strong>No brief yet</strong>
-                Paste a URL above and click Scrape. Try gjgardner.com.au, movember.com, or any client site.
-              </div>
-            )}
-
-            {brief && (
-              <>
-                <div className="brief-section">
-                  <p className="label-mono">Brand fingerprint <span className="count ai">extracted from {brief.pagesScraped} pages</span></p>
-                  <div className="fingerprint">
-                    <div className="fp-cell"><p className="fp-cell-label">Tone of voice</p><p className="fp-cell-value">{brief.brand.toneOfVoice}</p></div>
-                    <div className="fp-cell"><p className="fp-cell-label">Target audience</p><p className="fp-cell-value">{brief.brand.targetAudience}</p></div>
-                    <div className="fp-cell">
-                      <p className="fp-cell-label">USPs detected</p>
-                      <div className="fp-tags">
-                        {brief.brand.usps.map((u, i) => <span key={i} className="fp-tag">{u}<span className="x">×</span></span>)}
-                        <button className="fp-tag-add">+ add</button>
-                      </div>
-                    </div>
-                    <div className="fp-cell">
-                      <p className="fp-cell-label">Must-include keywords</p>
-                      <div className="fp-tags">
-                        {brief.brand.mustIncludeKeywords.map((k, i) => <span key={i} className="fp-tag">{k}<span className="x">×</span></span>)}
-                        <button className="fp-tag-add">+ add</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="brief-section">
-                  <p className="label-mono">Strategic angles <span className="count">how we&apos;ll lean</span></p>
-                  <div className="strategy-grid">
-                    <div className="angle-col">
-                      <h4>Pain points <em>what to push against</em></h4>
-                      {brief.angles.pain.map((a, i) => (
-                        <div key={i} className="angle-card pain"><p className="angle-card-title">{a.title}</p><p className="angle-card-desc">{a.description}</p></div>
-                      ))}
-                    </div>
-                    <div className="angle-col">
-                      <h4>Aspirations <em>what to lift toward</em></h4>
-                      {brief.angles.aspiration.map((a, i) => (
-                        <div key={i} className="angle-card aspire"><p className="angle-card-title">{a.title}</p><p className="angle-card-desc">{a.description}</p></div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="lean-card" style={{ marginTop: 10 }}>
-                    <div className="lean-label">
-                      <span className="lean-label-text">Lead with <em>pain or aspiration?</em></span>
-                      <span className="lean-value">{leanValue}% pain · {100 - leanValue}% aspiration</span>
-                    </div>
-                    <div className="lean-slider">
-                      <div className="lean-track"></div>
-                      <div className="lean-thumb" style={{ left: `${leanValue}%` }}></div>
-                      <input type="range" className="lean-input" min={0} max={100} value={leanValue} onChange={e => setLeanValue(parseInt(e.target.value))} />
-                    </div>
-                    <div className="lean-ends"><span className="pe">Problem-led</span><span className="ae">Aspiration-led</span></div>
-                  </div>
-                </div>
-
-                <div className="brief-section">
-                  <p className="label-mono">Channels for this build</p>
-                  <div className="channel-grid">
-                    <div className={`channel-card ${channels.search ? "checked" : ""}`} onClick={() => setChannels(c => ({ ...c, search: !c.search }))}>
-                      <div className="channel-card-h"><span className="channel-card-name">Search</span><span className="channel-card-c"></span></div>
-                      <p className="channel-card-desc">Keyword RSAs across Google search</p>
-                    </div>
-                    <div className={`channel-card ${channels.pmax ? "checked" : ""}`} onClick={() => setChannels(c => ({ ...c, pmax: !c.pmax }))}>
-                      <div className="channel-card-h"><span className="channel-card-name">Performance Max</span><span className="channel-card-c"></span></div>
-                      <p className="channel-card-desc">Cross-network with audience signals</p>
-                    </div>
-                    <div className={`channel-card ${channels.demand ? "checked" : ""}`} onClick={() => setChannels(c => ({ ...c, demand: !c.demand }))}>
-                      <div className="channel-card-h"><span className="channel-card-name">Demand Gen</span><span className="channel-card-c"></span></div>
-                      <p className="channel-card-desc">YouTube + Discover, image-led</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="action-row">
-                  <p className="summary">BRIEF READY · {brief.brand.usps.length} USPS · {brief.angles.pain.length}P+{brief.angles.aspiration.length}A ANGLES</p>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn ghost" onClick={scrapeUrl}>Re-scrape</button>
-                    <button className="btn primary" onClick={proposeArchitecture} disabled={!!loading}>Propose architecture →</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+  function Topbar() {
+    return (
+      <div className="topbar">
+        <div className="breadcrumb">
+          <span className="breadcrumb-segment">Builds</span>
+          <span className="breadcrumb-sep">›</span>
+          <span className="breadcrumb-segment active">{briefUrl ? new URL(briefUrl.startsWith("http") ? briefUrl : `https://${briefUrl}`).host.replace(/^www\./, "") : "New build"}</span>
         </div>
+        <span
+          className={classNames("health-badge", health)}
+          title={health === "ok" ? `API ${healthInfo?.elapsedMs}ms` : health === "down" ? `API down: ${healthInfo?.error || ""}` : "Checking..."}
+        >
+          <span className="health-dot" />
+          {health === "ok" ? "API OK" : health === "down" ? "API DOWN" : "..."}
+        </span>
+        {stage === "generate" && (
+          <>
+            <button className="btn sm" onClick={() => handleExport("xlsx")}>↓ XLSX</button>
+            <button className="btn sm" onClick={() => handleExport("csv")}>↓ CSV</button>
+          </>
+        )}
+        <button className="btn sm ghost" onClick={handleReset}>Reset</button>
+      </div>
+    );
+  }
 
-        {/* ARCHITECT */}
-        <div className={`view ${stage === "architect" ? "active" : ""}`}>
+  /* ============================================================
+     BRIEF VIEW
+     ============================================================ */
+
+  function BriefView() {
+    return (
+      <div className={classNames("view", stage === "brief" && "active")}>
+        <div className="brief">
           <div className="stage-header">
             <div>
-              <p className="stage-eyebrow">Stage 02 · Account architecture</p>
-              <h1 className="stage-title">Build your <em>account structure</em></h1>
-              <p className="stage-sub">{campaigns.length} campaigns proposed by AI from your brief. Walk through the four sub-stages — every field below is editable.</p>
+              <p className="stage-eyebrow">Stage 01 / Brief</p>
+              <h1 className="stage-title">Brand <em>fingerprint</em></h1>
+              <p className="stage-sub">Drop a URL. We'll scrape the homepage and a few inner pages, extract tone, audience, USPs, must-include keywords, and 6 strategic angles.</p>
             </div>
           </div>
 
-          <div className="arch-substages">
-            {archSubStages.map((s, i) => (
-              <button key={s} className={`arch-substage ${i === archSubIdx ? "active" : i < archSubIdx ? "done" : ""}`} onClick={() => setArchSub(s)}>
-                <span className="arch-substage-num">{i + 1}</span>
-                <span className="arch-substage-label">
-                  <span className="arch-substage-title">{archSubMeta[s].title}</span>
-                  <span className="arch-substage-sub">{archSubMeta[s].sub}</span>
-                </span>
-              </button>
-            ))}
+          <div className="brief-input-row">
+            <input
+              className="text-input"
+              placeholder="brand.com.au"
+              value={briefUrl}
+              onChange={(e) => setBriefUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleScrapeBrief();
+              }}
+            />
+            <button className="btn primary" onClick={handleScrapeBrief} disabled={!!loading}>
+              Scrape →
+            </button>
           </div>
+          <p className="text-helper">
+            uses real browser headers, follows redirects, 15s timeout. extracts via Sonnet tool_use schema.
+          </p>
 
-          {archSub === "campaigns" && (
-            <div className="substage-content">
-              <div className="substage-intro">
-                <h2>Define your campaigns</h2>
-                <p>Each campaign targets one theme. Name it, pick the structure type, choose the channel.</p>
-              </div>
-              {campaigns.map((c, idx) => (
-                <div key={c.id} className="form-card">
-                  <div className="form-card-header">
-                    <span className="form-card-num">{String(idx + 1).padStart(2, "0")}</span>
-                    <span className="form-card-title">Campaign {idx + 1}</span>
-                    <span className="form-card-meta">{c.adGroups.length} AG · ${c.budget.toLocaleString()}/mo</span>
-                    <div className="form-card-actions">
-                      {campaigns.length > 1 && <button className="form-card-action-btn" onClick={() => removeCampaign(c.id)} title="Remove">×</button>}
+          {brief && (
+            <>
+              <div className="brief-section">
+                <div className="label-mono">
+                  Brand fingerprint
+                  <span className="count ai">{brief.pagesScraped || 1} pages</span>
+                </div>
+                <div className="fingerprint">
+                  <div className="fp-cell">
+                    <p className="fp-cell-label">Tone of voice</p>
+                    <p className="fp-cell-value">{brief.brand.toneOfVoice}</p>
+                  </div>
+                  <div className="fp-cell">
+                    <p className="fp-cell-label">Target audience</p>
+                    <p className="fp-cell-value">{brief.brand.targetAudience}</p>
+                  </div>
+                  <div className="fp-cell">
+                    <p className="fp-cell-label">USPs</p>
+                    <div className="fp-tags">
+                      {brief.brand.usps.map((u, i) => (
+                        <span key={i} className="fp-tag">{u}</span>
+                      ))}
                     </div>
                   </div>
-                  <div className="form-card-body">
-                    <div className="form-stack">
-                      <div className="form-field">
-                        <label className="form-label">Campaign name <span className="optional">naming convention: Theme x Sub-theme | SD</span></label>
-                        <input className="form-input" value={c.name} onChange={e => updateField(c.id, "name", e.target.value)} />
-                      </div>
-                      <div className="form-field">
-                        <label className="form-label">Account structure</label>
-                        <div className="segmented">
-                          {(Object.keys(structDescs) as Structure[]).map(s => (
-                            <button key={s} className={`segmented-opt ${c.structure === s ? "active" : ""}`} onClick={() => setStructure(c.id, s)}>
-                              <span className="segmented-opt-label">{s}</span>
-                              <span className="segmented-opt-sub">{s === "MKAG" ? "DEFAULT" : s === "SKAG" ? "1KW/AG" : s === "STAG" ? "5-15KW" : s === "Hagakure" ? "BROAD" : "CUSTOM"}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <p className="form-help">{structDescs[c.structure]}</p>
-                      </div>
-                      <div className="form-field">
-                        <label className="form-label">Channel</label>
-                        <div className="segmented">
-                          {(Object.keys(channelTypeDescs) as ChannelType[]).map(ct => (
-                            <button key={ct} className={`segmented-opt ${c.channelType === ct ? "active" : ""}`} onClick={() => setChannelType(c.id, ct)}>
-                              <span className="segmented-opt-label">{ct}</span>
-                              <span className="segmented-opt-sub">{channelTypeDescs[ct]}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {c.aiNote && (
-                        <div className="ai-suggestion-strip">
-                          <span className="ai-suggestion-strip-icon">↳</span>
-                          <div className="ai-suggestion-strip-body"><strong>AI:</strong> {c.aiNote}</div>
-                        </div>
-                      )}
+                  <div className="fp-cell">
+                    <p className="fp-cell-label">Must-include keywords</p>
+                    <div className="fp-tags">
+                      {brief.brand.mustIncludeKeywords.map((k, i) => (
+                        <span key={i} className="fp-tag">{k}</span>
+                      ))}
                     </div>
                   </div>
                 </div>
-              ))}
-              <button className="add-row-btn" onClick={addCampaign}>+ Add another campaign</button>
-            </div>
-          )}
-
-          {archSub === "keywords" && (
-            <div className="substage-content">
-              <div className="substage-intro">
-                <h2>Group your keywords</h2>
-                <p>Click a chip&apos;s match label (PHR/EXC/BRD) to cycle. Paste a list to add many at once.</p>
               </div>
-              {campaigns.map((c, idx) => {
-                const isCollapsed = collapsed.has(`kw_${c.id}`);
-                return (
-                  <div key={c.id} className={`form-card ${isCollapsed ? "collapsed" : ""}`}>
-                    <div className="form-card-header">
-                      <button className={`form-card-collapse-btn ${!isCollapsed ? "expanded" : ""}`} onClick={() => toggleCollapsed(`kw_${c.id}`)}>›</button>
-                      <span className="form-card-num">{String(idx + 1).padStart(2, "0")}</span>
-                      <span className="form-card-title">{c.name}</span>
-                      <span className="form-card-meta">{c.adGroups.length} AG · {c.adGroups.reduce((s, ag) => s + ag.keywords.length, 0)} KW · {c.structure}</span>
-                    </div>
-                    <div className="form-card-body">
-                      {c.adGroups.map(ag => (
-                        <div key={ag.id} className="adgroup-form">
-                          <div className="adgroup-form-header">
-                            <input className="adgroup-form-name" value={ag.name} onChange={e => updateAdGroupField(c.id, ag.id, "name", e.target.value)} />
-                            <span className="adgroup-form-meta">{ag.keywords.length} KW</span>
-                            {c.adGroups.length > 1 && <button className="form-card-action-btn" onClick={() => removeAdGroup(c.id, ag.id)} title="Remove">×</button>}
-                          </div>
-                          <KeywordInput keywords={ag.keywords} onAdd={t => addKwViaInput(c.id, ag.id, t)} onRemove={i => removeKw(c.id, ag.id, i)} onCycle={i => cycleMatch(c.id, ag.id, i)} />
-                          <div className="form-row col-2" style={{ marginTop: 10 }}>
-                            <div className="form-field">
-                              <label className="form-label">Landing path</label>
-                              <input className="form-input" value={ag.landingPath || ""} onChange={e => updateAdGroupField(c.id, ag.id, "landingPath", e.target.value)} placeholder="/page-path" />
-                            </div>
-                          </div>
-                          {ag.aiNote && (
-                            <div className="ai-suggestion-strip">
-                              <span className="ai-suggestion-strip-icon">↳</span>
-                              <div className="ai-suggestion-strip-body"><strong>AI:</strong> {ag.aiNote}</div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      <button className="add-row-btn" onClick={() => addAdGroup(c.id)}>+ Add ad group to this campaign</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
 
-          {archSub === "targeting" && (
-            <div className="substage-content">
-              <div className="substage-intro">
-                <h2>Targeting &amp; budget</h2>
-                <p>AI pre-filled this from your brief. Adjust per campaign.</p>
-              </div>
-              {campaigns.map((c, idx) => {
-                const isCollapsed = collapsed.has(`tg_${c.id}`);
-                return (
-                  <div key={c.id} className={`form-card ${isCollapsed ? "collapsed" : ""}`}>
-                    <div className="form-card-header">
-                      <button className={`form-card-collapse-btn ${!isCollapsed ? "expanded" : ""}`} onClick={() => toggleCollapsed(`tg_${c.id}`)}>›</button>
-                      <span className="form-card-num">{String(idx + 1).padStart(2, "0")}</span>
-                      <span className="form-card-title">{c.name}</span>
-                      <span className="form-card-meta">${c.budget.toLocaleString()}/mo · {c.bidStrategy}</span>
-                    </div>
-                    <div className="form-card-body">
-                      <div className="form-stack">
-                        <div className="form-row col-2">
-                          <div className="form-field">
-                            <label className="form-label">Monthly budget</label>
-                            <div className="form-input-wrap">
-                              <span className="form-input-prefix">$</span>
-                              <input className="form-input with-prefix" type="number" value={c.budget} onChange={e => updateField(c.id, "budget", parseInt(e.target.value) || 0)} />
-                            </div>
-                          </div>
-                          <div className="form-field">
-                            <label className="form-label">Bid strategy</label>
-                            <select className="form-input" value={c.bidStrategy} onChange={e => updateField(c.id, "bidStrategy", e.target.value as BidStrategy)}>
-                              {bidStrategies.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="form-field">
-                          <label className="form-label">Locations</label>
-                          <ChipInput chips={c.locations} placeholder="Add a location, press Enter..." onAdd={l => addLocation(c.id, l)} onRemove={i => removeLocation(c.id, i)} />
-                        </div>
-                        <div className="form-field">
-                          <label className="form-label">Audience signals <span className="optional">help PMax find your customers</span></label>
-                          <ChipInput chips={c.audiences} placeholder="Add an audience signal, press Enter..." onAdd={a => addAudience(c.id, a)} onRemove={i => removeAudience(c.id, i)} />
-                        </div>
-                        <div className="form-field">
-                          <label className="form-label">Campaign-level negatives <span className="optional">one per line</span></label>
-                          <textarea className="form-textarea" value={c.negatives} onChange={e => updateField(c.id, "negatives", e.target.value)} rows={3} />
-                        </div>
+              <div className="brief-section">
+                <div className="label-mono">Strategic angles</div>
+                <div className="strategy-grid">
+                  <div className="angle-col">
+                    <h4>Pain <em>problems</em></h4>
+                    {brief.angles.pain.map((a, i) => (
+                      <div key={i} className="angle-card pain">
+                        <p className="angle-card-title">{a.title}</p>
+                        <p className="angle-card-desc">{a.desc}</p>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {archSub === "review" && (
-            <div className="substage-content wide">
-              <div className="substage-intro">
-                <h2>Review your architecture</h2>
-                <p>Final check before generating ad copy.</p>
-              </div>
-              <div className="review-summary">
-                <div className="review-stat"><p className="review-stat-label">Campaigns</p><p className="review-stat-value">{campaigns.length}</p><p className="review-stat-sub">{campaigns.map(c => c.channelType).join(" · ")}</p></div>
-                <div className="review-stat"><p className="review-stat-label">Ad groups</p><p className="review-stat-value">{totalAG}</p><p className="review-stat-sub">across {campaigns.length} campaigns</p></div>
-                <div className="review-stat"><p className="review-stat-label">Keywords</p><p className="review-stat-value">{totalKW}</p><p className="review-stat-sub">avg {(totalKW / Math.max(totalAG, 1)).toFixed(1)}/AG</p></div>
-                <div className="review-stat"><p className="review-stat-label">Budget / mo</p><p className="review-stat-value">${(totalBudget / 1000).toFixed(0)}K</p><p className="review-stat-sub">${totalBudget.toLocaleString()} total</p></div>
-              </div>
-              <p className="label-mono" style={{ marginBottom: 8 }}>Account hierarchy</p>
-              <div className="review-canvas">
-                {campaigns.map(c => (
-                  <div key={c.id} className="review-canvas-col">
-                    <div className="review-canvas-col-header"><span className="accent-bar" style={{ background: c.accent }}></span><span className="review-canvas-col-name">{c.name.split("|")[0].trim()}</span></div>
-                    <div className="review-canvas-col-stats">{c.structure} · {c.channelType} · ${c.budget.toLocaleString()}/mo · {c.adGroups.length}AG · {c.adGroups.reduce((s, ag) => s + ag.keywords.length, 0)}KW</div>
-                    {c.adGroups.map(ag => (
-                      <div key={ag.id} className="review-canvas-ag"><p className="review-canvas-ag-name">{ag.name}</p><p className="review-canvas-ag-meta">{ag.keywords.length} KW · {ag.landingPath || "no path"}</p></div>
                     ))}
+                  </div>
+                  <div className="angle-col">
+                    <h4>Aspiration <em>outcomes</em></h4>
+                    {brief.angles.aspiration.map((a, i) => (
+                      <div key={i} className="angle-card aspire">
+                        <p className="angle-card-title">{a.title}</p>
+                        <p className="angle-card-desc">{a.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="brief-section">
+                <div className="label-mono">Angle lean <span className="count">{leanValue}% aspiration</span></div>
+                <div className="lean-slider">
+                  <input
+                    className="lean-input"
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={leanValue}
+                    onChange={(e) => setLeanValue(Number(e.target.value))}
+                  />
+                </div>
+                <div className="lean-ends">
+                  <span className="pe">PAIN END</span>
+                  <span className="ae">ASPIRATION END</span>
+                </div>
+              </div>
+
+              <div className="brief-section">
+                <div className="label-mono">Channels</div>
+                <div className="channel-grid">
+                  {CHANNEL_OPTIONS.map((c) => {
+                    const checked = channels.includes(c);
+                    return (
+                      <div
+                        key={c}
+                        className={classNames("channel-card", checked && "checked")}
+                        onClick={() => {
+                          setChannels((prev) =>
+                            prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+                          );
+                        }}
+                      >
+                        <div className="channel-card-h">
+                          <span className="channel-card-name">{c}</span>
+                          <span className="channel-card-c" />
+                        </div>
+                        <p className="channel-card-desc">
+                          {c === "Search" ? "Keywords + RSAs" : c === "PMax" ? "Asset groups + signals" : "Discovery feeds"}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="action-row">
+                <span className="summary">
+                  <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration lean
+                </span>
+                <button className="btn primary" onClick={handleProposeArchitecture} disabled={!!loading}>
+                  Architect →
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ============================================================
+     ARCHITECT VIEW (form-based, sub-stages)
+     ============================================================ */
+
+  function CampaignsSub() {
+    const updateCampaign = (id: string, patch: Partial<Campaign>) => {
+      setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    };
+    const addCampaign = () => {
+      const next: Campaign = {
+        id: rid("c"),
+        name: "New theme x sub-theme | SD",
+        structure: "MKAG",
+        channelType: "Search",
+        budget: 50,
+        locations: ["Australia"],
+        bidStrategy: "Maximise conversions",
+        audiences: [],
+        negatives: [],
+        aiNote: "",
+        adGroups: [],
+        accent: ACCENTS[campaigns.length % ACCENTS.length],
+      };
+      setCampaigns((prev) => [...prev, next]);
+    };
+    const removeCampaign = (id: string) => {
+      setCampaigns((prev) => prev.filter((c) => c.id !== id));
+    };
+
+    return (
+      <div className="substage-content wide">
+        <div className="substage-intro">
+          <h2>Campaigns</h2>
+          <p>Name, structure, channel, budget. Naming convention: <code className="mono-inline">{`{Theme} x {Sub-theme} | SD`}</code></p>
+        </div>
+        <div className="campaign-form-list">
+          {campaigns.map((c, ci) => (
+            <div key={c.id} className="campaign-form-card">
+              <div className="cfc-h">
+                <div className="cfc-accent" style={{ background: c.accent }} />
+                <input
+                  className="cfc-name"
+                  value={c.name}
+                  onChange={(e) => updateCampaign(c.id, { name: e.target.value })}
+                />
+                <button className="cfc-remove" onClick={() => removeCampaign(c.id)} title="Remove campaign">×</button>
+              </div>
+              <div className="cfc-grid">
+                <div className="cfc-field">
+                  <label>Structure</label>
+                  <div className="seg">
+                    {STRUCTURE_OPTIONS.map((s) => (
+                      <button
+                        key={s}
+                        className={classNames("seg-btn", c.structure === s && "active")}
+                        onClick={() => updateCampaign(c.id, { structure: s })}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="cfc-field">
+                  <label>Channel</label>
+                  <div className="seg">
+                    {CHANNEL_OPTIONS.map((s) => (
+                      <button
+                        key={s}
+                        className={classNames("seg-btn", c.channelType === s && "active")}
+                        onClick={() => updateCampaign(c.id, { channelType: s })}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="cfc-field">
+                  <label>Daily budget (AUD)</label>
+                  <input
+                    className="text-input"
+                    type="number"
+                    value={c.budget}
+                    onChange={(e) => updateCampaign(c.id, { budget: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="cfc-field">
+                  <label>Ad groups</label>
+                  <div className="cfc-counts">
+                    <strong>{c.adGroups.length}</strong> ad group{c.adGroups.length === 1 ? "" : "s"} ·{" "}
+                    <strong>{c.adGroups.reduce((s, g) => s + g.keywords.length, 0)}</strong> keywords
+                  </div>
+                </div>
+              </div>
+              {c.aiNote && <div className="ai-inline">{c.aiNote}</div>}
+            </div>
+          ))}
+          <button className="add-campaign-btn" onClick={addCampaign}>+ Add campaign</button>
+        </div>
+      </div>
+    );
+  }
+
+  function KeywordsSub() {
+    const updateKeyword = (cId: string, gId: string, kId: string, patch: Partial<Keyword>) => {
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === cId
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === gId
+                    ? { ...g, keywords: g.keywords.map((k) => (k.id === kId ? { ...k, ...patch } : k)) }
+                    : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+    const removeKeyword = (cId: string, gId: string, kId: string) => {
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === cId
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === gId ? { ...g, keywords: g.keywords.filter((k) => k.id !== kId) } : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+    const addKeywords = (cId: string, gId: string, raw: string) => {
+      const items = raw
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((text) => ({ id: rid("k"), text, match: "PHR" as Match }));
+      if (!items.length) return;
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === cId
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === gId ? { ...g, keywords: [...g.keywords, ...items] } : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+
+    return (
+      <div className="substage-content wide">
+        <div className="substage-intro">
+          <h2>Keywords</h2>
+          <p>Click a match label (PHR / EXC / BRD) to cycle. Paste multiple keywords - newlines or commas split them.</p>
+        </div>
+        {campaigns.map((c) => (
+          <div key={c.id} className="kw-block">
+            <div className="kw-block-h">
+              <div className="kw-block-accent" style={{ background: c.accent }} />
+              <span className="kw-block-name">{c.name}</span>
+              <span className="kw-block-meta">{c.adGroups.length} groups</span>
+            </div>
+            {c.adGroups.map((g) => (
+              <div key={g.id} className="kw-group">
+                <div className="kw-group-h">
+                  <strong>{g.name}</strong>
+                  <span className="kw-group-meta">{g.landingPath}</span>
+                  <span className="kw-group-count">{g.keywords.length} keywords</span>
+                </div>
+                <div className="kw-list">
+                  {g.keywords.map((k) => (
+                    <span key={k.id} className="kw-chip">
+                      <button
+                        className={classNames(
+                          "kw-match",
+                          k.match === "PHR" && "phrase",
+                          k.match === "EXC" && "exact",
+                          k.match === "BRD" && "broad"
+                        )}
+                        onClick={() => updateKeyword(c.id, g.id, k.id, { match: cycleMatch(k.match) })}
+                      >
+                        {k.match}
+                      </button>
+                      <span className="kw-text">{k.text}</span>
+                      <span className="kw-x" onClick={() => removeKeyword(c.id, g.id, k.id)}>×</span>
+                    </span>
+                  ))}
+                  <KwAdd onAdd={(raw) => addKeywords(c.id, g.id, raw)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function TargetingSub() {
+    const updateCampaign = (id: string, patch: Partial<Campaign>) => {
+      setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    };
+
+    return (
+      <div className="substage-content wide">
+        <div className="substage-intro">
+          <h2>Targeting</h2>
+          <p>Locations, audiences, negatives, bid strategy.</p>
+        </div>
+        {campaigns.map((c) => (
+          <div key={c.id} className="campaign-form-card">
+            <div className="cfc-h">
+              <div className="cfc-accent" style={{ background: c.accent }} />
+              <strong>{c.name}</strong>
+            </div>
+            <div className="cfc-grid">
+              <div className="cfc-field">
+                <label>Locations</label>
+                <input
+                  className="text-input"
+                  value={c.locations.join(", ")}
+                  onChange={(e) => updateCampaign(c.id, { locations: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                />
+              </div>
+              <div className="cfc-field">
+                <label>Bid strategy</label>
+                <select
+                  className="text-input"
+                  value={c.bidStrategy}
+                  onChange={(e) => updateCampaign(c.id, { bidStrategy: e.target.value })}
+                >
+                  {BID_STRATEGIES.map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="cfc-field cfc-field-wide">
+                <label>Audiences</label>
+                <input
+                  className="text-input"
+                  value={c.audiences.join(", ")}
+                  onChange={(e) => updateCampaign(c.id, { audiences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                />
+              </div>
+              <div className="cfc-field cfc-field-wide">
+                <label>Negative keywords</label>
+                <input
+                  className="text-input"
+                  value={c.negatives.join(", ")}
+                  onChange={(e) => updateCampaign(c.id, { negatives: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function ReviewSub() {
+    return (
+      <div className="substage-content wide">
+        <div className="substage-intro">
+          <h2>Review</h2>
+          <p>Final architecture overview. Move to Generate when this looks right.</p>
+        </div>
+        <div className="arch-canvas">
+          {campaigns.map((c) => (
+            <div key={c.id} className="campaign-col">
+              <div className="campaign-col-header">
+                <div className="campaign-col-h-row1">
+                  <span className="accent-bar" style={{ background: c.accent }} />
+                  <span className="campaign-name-input">{c.name}</span>
+                </div>
+                <div className="campaign-col-h-row2">
+                  <span className="kw-match phrase">{c.structure}</span>
+                  <span className="kw-match exact">{c.channelType}</span>
+                  <span className="arch-stat">${c.budget}/d</span>
+                </div>
+              </div>
+              <div className="campaign-col-stats">
+                <span className="campaign-col-stat"><strong>{c.adGroups.length}</strong> groups</span>
+                <span className="campaign-col-stat"><strong>{c.adGroups.reduce((s, g) => s + g.keywords.length, 0)}</strong> kw</span>
+              </div>
+              <div className="campaign-col-body">
+                {c.adGroups.map((g) => (
+                  <div key={g.id} className="adgroup-card">
+                    <div className="adgroup-h">
+                      <span className="adgroup-name">{g.name}</span>
+                    </div>
+                    <div className="adgroup-meta">
+                      <span>{g.keywords.length} kw</span>
+                      <span>{g.landingPath}</span>
+                    </div>
+                    <div className="kw-list">
+                      {g.keywords.slice(0, 8).map((k) => (
+                        <span key={k.id} className="kw-chip">
+                          <span className={classNames(
+                            "kw-match",
+                            k.match === "PHR" && "phrase",
+                            k.match === "EXC" && "exact",
+                            k.match === "BRD" && "broad"
+                          )}>
+                            {k.match}
+                          </span>
+                          <span className="kw-text">{k.text}</span>
+                        </span>
+                      ))}
+                      {g.keywords.length > 8 && <span className="kw-chip"><span className="kw-text">+{g.keywords.length - 8} more</span></span>}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          ))}
+        </div>
+        <div className="action-row">
+          <span className="summary">
+            <strong>{campaigns.length}</strong> campaigns ·{" "}
+            <strong>{campaigns.reduce((s, c) => s + c.adGroups.length, 0)}</strong> ad groups ·{" "}
+            <strong>{campaigns.reduce((s, c) => s + c.adGroups.reduce((s2, g) => s2 + g.keywords.length, 0), 0)}</strong> keywords
+          </span>
+          <button className="btn primary" onClick={() => setStage("generate")}>Generate copy →</button>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="action-row">
-            <p className="summary">{campaigns.length} CAMPAIGNS · {totalAG} AD GROUPS · {totalKW} KEYWORDS · ${(totalBudget/1000).toFixed(0)}K/MO</p>
-            <div style={{ display: "flex", gap: 6 }}>
-              {archSubIdx > 0 ? (
-                <button className="btn ghost" onClick={() => setArchSub(archSubStages[archSubIdx - 1])}>← {archSubMeta[archSubStages[archSubIdx - 1]].title}</button>
-              ) : (
-                <button className="btn ghost" onClick={() => setStage("brief")}>← Brief</button>
-              )}
-              {archSubIdx < archSubStages.length - 1 ? (
-                <button className="btn primary" onClick={() => setArchSub(archSubStages[archSubIdx + 1])}>Next: {archSubMeta[archSubStages[archSubIdx + 1]].title} →</button>
-              ) : (
-                <button className="btn primary" onClick={generateAllCopy} disabled={!!loading}>Generate copy for all ad groups →</button>
-              )}
-            </div>
+  function ArchitectView() {
+    return (
+      <div className={classNames("view", stage === "architect" && "active")}>
+        <div className="stage-header">
+          <div>
+            <p className="stage-eyebrow">Stage 02 / Architect</p>
+            <h1 className="stage-title">Build the <em>architecture</em></h1>
+            <p className="stage-sub">Step through campaigns, keywords, targeting, then review.</p>
           </div>
         </div>
 
-        {/* GENERATE */}
-        <div className={`view ${stage === "generate" ? "active" : ""}`}>
-          <div className="stage-header">
-            <div>
-              <p className="stage-eyebrow">Stage 03 · Generate</p>
-              <h1 className="stage-title">Edit your <em>RSA copy</em></h1>
-              <p className="stage-sub">Pick an ad group on the left to edit its 15 headlines and 5 descriptions. Live SERP preview on the right.</p>
-            </div>
+        <div className="arch-substages">
+          {ARCH_SUBS.map((s) => (
+            <button
+              key={s.key}
+              className={classNames("arch-substage", archSub === s.key && "active")}
+              onClick={() => setArchSub(s.key)}
+            >
+              <span className="arch-substage-num">{s.sub}</span>
+              <span className="arch-substage-label">
+                <span className="arch-substage-title">{s.label}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {archSub === "campaigns" && <CampaignsSub />}
+        {archSub === "keywords" && <KeywordsSub />}
+        {archSub === "targeting" && <TargetingSub />}
+        {archSub === "review" && <ReviewSub />}
+      </div>
+    );
+  }
+
+  /* ============================================================
+     GENERATE VIEW
+     ============================================================ */
+
+  function GenerateView() {
+    const allAdGroups: { campaign: Campaign; ag: AdGroup; key: string }[] = [];
+    for (const c of campaigns) {
+      for (const g of c.adGroups) {
+        allAdGroups.push({ campaign: c, ag: g, key: `${c.id}__${g.id}` });
+      }
+    }
+    const active = allAdGroups.find((x) => x.key === activeAdGroupKey) || allAdGroups[0];
+
+    const updateHeadline = (idx: number, patch: Partial<Headline>) => {
+      if (!active) return;
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === active.campaign.id
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === active.ag.id && g.copy
+                    ? {
+                        ...g,
+                        copy: {
+                          ...g.copy,
+                          headlines: g.copy.headlines.map((h, i) =>
+                            i === idx
+                              ? {
+                                  ...h,
+                                  ...patch,
+                                  length: dkiVisible(patch.text ?? h.text).length,
+                                  overLimit: dkiVisible(patch.text ?? h.text).length > 30,
+                                }
+                              : h
+                          ),
+                        },
+                      }
+                    : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+    const updateDesc = (idx: number, patch: Partial<Description>) => {
+      if (!active) return;
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === active.campaign.id
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === active.ag.id && g.copy
+                    ? {
+                        ...g,
+                        copy: {
+                          ...g.copy,
+                          descriptions: g.copy.descriptions.map((d, i) =>
+                            i === idx
+                              ? {
+                                  ...d,
+                                  ...patch,
+                                  length: (patch.text ?? d.text).length,
+                                  overLimit: (patch.text ?? d.text).length > 90,
+                                }
+                              : d
+                          ),
+                        },
+                      }
+                    : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+    const updatePath = (idx: number, val: string) => {
+      if (!active) return;
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === active.campaign.id
+            ? {
+                ...c,
+                adGroups: c.adGroups.map((g) =>
+                  g.id === active.ag.id && g.copy
+                    ? { ...g, copy: { ...g.copy, paths: g.copy.paths.map((p, i) => (i === idx ? val : p)) } }
+                    : g
+                ),
+              }
+            : c
+        )
+      );
+    };
+
+    if (!campaigns.length) {
+      return (
+        <div className={classNames("view", stage === "generate" && "active")}>
+          <div className="brief-empty-state">
+            <strong>No architecture yet</strong>
+            Go back to Architect and propose campaigns first.
           </div>
+        </div>
+      );
+    }
 
-          <div className="gen-shell">
-            <div>
-              {/* Ad group picker */}
-              <div className="gen-adgroup-list">
-                {campaigns.map(c => c.adGroups.map(ag => {
-                  const key = `${c.id}::${ag.id}`;
-                  const isActive = activeAdGroupKey === key;
-                  return (
-                    <button key={key} className={`gen-adgroup-pill ${isActive ? "active" : ""}`} onClick={() => { setActiveAdGroupKey(key); if (!ag.copy) generateCopy(c.id, ag.id); }}>
-                      <span className="accent-bar" style={{ background: c.accent, width: 12 }}></span>
-                      <span style={{ fontWeight: 600 }}>{ag.name}</span>
-                      <span className="meta">{ag.copy ? "✓ READY" : "GENERATE"}</span>
-                    </button>
-                  );
-                }))}
-              </div>
+    return (
+      <div className={classNames("view", stage === "generate" && "active")}>
+        <div className="stage-header">
+          <div>
+            <p className="stage-eyebrow">Stage 03 / Generate</p>
+            <h1 className="stage-title">Generate <em>RSA copy</em></h1>
+            <p className="stage-sub">15 headlines, 5 descriptions, 2 paths, 6 sitelinks per ad group. H1 is DKI.</p>
+          </div>
+        </div>
 
-              {/* Active ad group editor */}
-              {activeAdGroup ? (
-                activeAdGroup.adGroup.copy ? (
+        <div className="gen-shell">
+          <div>
+            {active && (
+              <>
+                <div className="gen-active-h">
+                  <div>
+                    <div className="gen-active-name">{active.ag.name}</div>
+                    <div className="gen-active-meta">{active.campaign.name}</div>
+                  </div>
+                  <button
+                    className="btn ai"
+                    onClick={() => handleGenerateCopy(active.campaign, active.ag)}
+                    disabled={!!loading}
+                  >
+                    {active.ag.copy ? "Regenerate copy" : "Generate copy"}
+                  </button>
+                </div>
+
+                {active.ag.copy ? (
                   <>
-                    <div className="form-card">
-                      <div className="form-card-header">
-                        <span className="form-card-title">{activeAdGroup.adGroup.name}</span>
-                        <span className="form-card-meta">{activeAdGroup.adGroup.copy.headlines.length} headlines · {activeAdGroup.adGroup.copy.descriptions.length} descriptions</span>
-                        <div className="form-card-actions">
-                          <button className="btn sm" onClick={() => generateCopy(activeAdGroup.campaign.id, activeAdGroup.adGroup.id)} disabled={!!loading}>↻ Regenerate</button>
-                        </div>
+                    <div className="gen-section-title">Headlines (15)</div>
+                    {active.ag.copy.headlines.map((h, i) => (
+                      <div key={i} className="asset-row">
+                        <span className="asset-num">H{i + 1}</span>
+                        <input
+                          className={classNames("asset-text-input", h.overLimit && "over")}
+                          value={h.text}
+                          onChange={(e) => updateHeadline(i, { text: e.target.value })}
+                        />
+                        <span className={classNames("asset-len", (h.length ?? 0) > 25 && "warn", h.overLimit && "over")}>
+                          {dkiVisible(h.text).length}/30
+                        </span>
+                        <span className={classNames("asset-angle", h.angle)}>
+                          {h.angle}{h.pin != null ? ` p${h.pin}` : ""}
+                        </span>
                       </div>
-                      <div className="form-card-body">
-                        <p className="gen-section-title" style={{ marginTop: 0 }}>Headlines <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 10, color: "var(--ink-3)", marginLeft: 6 }}>{activeAdGroup.adGroup.copy.headlines.length}/15 · max 30 chars</span></p>
-                        {activeAdGroup.adGroup.copy.headlines.map((h, i) => {
-                          const lenClass = h.length > 30 ? "over" : h.length > 25 ? "warn" : "";
-                          return (
-                            <div key={h.id} className="asset-row">
-                              <span className="asset-num">H{i + 1}{h.pin === 1 ? "📌" : ""}</span>
-                              <input className={`asset-text-input ${h.length > 30 ? "over" : ""}`} value={h.text} onChange={e => updateHeadline(activeAdGroup.campaign.id, activeAdGroup.adGroup.id, i, e.target.value)} />
-                              <span className={`asset-len ${lenClass}`}>{h.length}/30</span>
-                              <span className={`asset-angle ${h.angle}`}>{h.angle}</span>
-                            </div>
-                          );
-                        })}
-                        <p className="gen-section-title">Descriptions <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 10, color: "var(--ink-3)", marginLeft: 6 }}>{activeAdGroup.adGroup.copy.descriptions.length}/5 · max 90 chars</span></p>
-                        {activeAdGroup.adGroup.copy.descriptions.map((d, i) => {
-                          const lenClass = d.length > 90 ? "over" : d.length > 80 ? "warn" : "";
-                          return (
-                            <div key={d.id} className="asset-row">
-                              <span className="asset-num">D{i + 1}</span>
-                              <input className={`asset-text-input ${d.length > 90 ? "over" : ""}`} value={d.text} onChange={e => updateDescription(activeAdGroup.campaign.id, activeAdGroup.adGroup.id, i, e.target.value)} />
-                              <span className={`asset-len ${lenClass}`}>{d.length}/90</span>
-                              <span className={`asset-angle ${d.angle}`}>{d.angle}</span>
-                            </div>
-                          );
-                        })}
-                        <p className="gen-section-title">Sitelinks · {activeAdGroup.adGroup.copy.sitelinks.length}</p>
-                        {activeAdGroup.adGroup.copy.sitelinks.map((s, i) => (
-                          <div key={s.id} className="asset-row" style={{ gridTemplateColumns: "12px 1fr 1fr 1fr" }}>
-                            <span className="asset-num">SL{i + 1}</span>
-                            <span style={{ fontSize: 12.5, fontWeight: 500 }}>{s.title}</span>
-                            <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{s.desc1}</span>
-                            <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{s.desc2}</span>
-                          </div>
-                        ))}
-                        <p className="gen-section-title">Paths</p>
-                        <p style={{ fontFamily: "Geist Mono, monospace", fontSize: 12, color: "var(--ink-2)" }}>
-                          {activeAdGroup.adGroup.landingPath} / <span style={{ color: "var(--accent)" }}>{activeAdGroup.adGroup.copy.paths[0]}</span> / <span style={{ color: "var(--accent)" }}>{activeAdGroup.adGroup.copy.paths[1]}</span>
-                        </p>
+                    ))}
+
+                    <div className="gen-section-title">Descriptions (5)</div>
+                    {active.ag.copy.descriptions.map((d, i) => (
+                      <div key={i} className="asset-row">
+                        <span className="asset-num">D{i + 1}</span>
+                        <input
+                          className={classNames("asset-text-input", d.overLimit && "over")}
+                          value={d.text}
+                          onChange={(e) => updateDesc(i, { text: e.target.value })}
+                        />
+                        <span className={classNames("asset-len", (d.length ?? 0) > 80 && "warn", d.overLimit && "over")}>
+                          {(d.text || "").length}/90
+                        </span>
+                        <span className={classNames("asset-angle", d.angle)}>{d.angle}</span>
                       </div>
+                    ))}
+
+                    <div className="gen-section-title">Display paths</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="text-input" placeholder="Path 1" value={active.ag.copy.paths[0] || ""} onChange={(e) => updatePath(0, e.target.value)} />
+                      <input className="text-input" placeholder="Path 2" value={active.ag.copy.paths[1] || ""} onChange={(e) => updatePath(1, e.target.value)} />
                     </div>
+
+                    <div className="gen-section-title">Sitelinks (6)</div>
+                    {active.ag.copy.sitelinks.map((s, i) => (
+                      <div key={i} className="sitelink-row">
+                        <strong>{s.text}</strong>
+                        <span className="sl-d">{s.desc1}</span>
+                        <span className="sl-d">{s.desc2}</span>
+                      </div>
+                    ))}
                   </>
                 ) : (
                   <div className="brief-empty-state">
-                    <strong>No copy yet for this ad group</strong>
-                    Click the pill above to generate.
+                    <strong>No copy generated yet</strong>
+                    Hit "Generate copy" to create 15 headlines, 5 descriptions, 2 paths, and 6 sitelinks for this ad group.
                   </div>
-                )
-              ) : (
-                <div className="brief-empty-state">
-                  <strong>Pick an ad group</strong>
-                  Click a pill above to edit RSA copy.
-                </div>
-              )}
-            </div>
+                )}
+              </>
+            )}
+          </div>
 
-            {/* Live preview */}
-            <div className="gen-side">
-              <p className="label-mono">Live SERP preview</p>
-              {previewCard ? (
+          <aside className="gen-side">
+            <div className="label-mono">Ad groups</div>
+            <div className="gen-adgroup-list">
+              {allAdGroups.map(({ campaign: c, ag: g, key }) => (
+                <button
+                  key={key}
+                  className={classNames("gen-adgroup-pill", activeAdGroupKey === key && "active")}
+                  onClick={() => setActiveAdGroupKey(key)}
+                >
+                  <span>{g.name}</span>
+                  <span className="meta">{g.copy ? "✓" : `${g.keywords.length}kw`}</span>
+                </button>
+              ))}
+            </div>
+            {active?.ag.copy && (
+              <>
+                <div className="label-mono">SERP preview</div>
                 <div className="serp-card">
                   <div className="serp-source">
-                    <div className="serp-favicon">{buildName.charAt(0).toUpperCase()}</div>
+                    <div className="serp-favicon">{(briefUrl || "B").replace(/^https?:\/\/(www\.)?/, "").charAt(0).toUpperCase()}</div>
                     <div className="serp-source-text">
                       <span className="serp-sponsored">Sponsored</span>
-                      <span className="serp-domain">{buildName}<span className="url-rest">{activeAdGroup?.adGroup.landingPath || ""}</span></span>
+                      <span className="serp-domain">{briefUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]} <span className="url-rest">› {active.ag.copy.paths[0]}</span></span>
                     </div>
                   </div>
-                  <h3 className="serp-headline">{previewCard.headline}</h3>
-                  <p className="serp-desc">{previewCard.description}</p>
-                  <div className="serp-cycle-row">
-                    <button className="serp-cycle-btn" onClick={() => setPreviewCombo(c => c + 1)}>↻ Cycle combo</button>
-                    <span className="serp-meta" style={{ marginLeft: "auto" }}>combo #{previewCombo + 1}</span>
+                  <div className="serp-headline">
+                    {active.ag.copy.headlines.slice(0, 3).map((h) => dkiVisible(h.text)).join(" · ")}
                   </div>
+                  <p className="serp-desc">{active.ag.copy.descriptions[0]?.text || ""}</p>
                 </div>
-              ) : (
-                <div className="brief-empty-state">
-                  <strong>Preview empty</strong>
-                  Generate copy for an ad group to see the live preview.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="action-row">
-            <p className="summary">{campaigns.filter(c => c.adGroups.some(ag => ag.copy)).length}/{campaigns.length} CAMPAIGNS WITH COPY</p>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn ghost" onClick={() => setStage("architect")}>← Architect</button>
-              <button className="btn primary" onClick={() => setStage("review")} disabled={!generateDone}>Send to client review →</button>
-            </div>
-          </div>
-        </div>
-
-        {/* CLIENT REVIEW STUB */}
-        <div className={`view ${stage === "review" ? "active" : ""}`}>
-          <div className="stage-header">
-            <div>
-              <p className="stage-eyebrow">Stage 04 · Client review</p>
-              <h1 className="stage-title">Interactive review <em>(coming soon)</em></h1>
-              <p className="stage-sub">White-label, magic-link review page. Real SERP previews, cycle combinations, approve/comment per variation.</p>
-            </div>
-          </div>
+              </>
+            )}
+          </aside>
         </div>
       </div>
+    );
+  }
 
-      {/* STATUS BAR */}
+  /* ============================================================
+     CLIENT REVIEW VIEW
+     ============================================================ */
+
+  function ReviewStageView() {
+    return (
+      <div className={classNames("view", stage === "review" && "active")}>
+        <div className="stage-header">
+          <div>
+            <p className="stage-eyebrow">Stage 04 / Client review</p>
+            <h1 className="stage-title">Send for <em>client review</em></h1>
+            <p className="stage-sub">Generate a white-label review link. The client sees variation cards with SERP previews and can approve or leave notes per variation.</p>
+          </div>
+        </div>
+        <div className="brief">
+          <button className="btn primary" onClick={handleGenerateReviewLink} disabled={!campaigns.length}>
+            Generate review link →
+          </button>
+          {!campaigns.length && (
+            <p className="text-helper" style={{ marginTop: 12 }}>You need to architect a build first.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ============================================================
+     RENDER
+     ============================================================ */
+
+  return (
+    <div className="app-layout">
+      <Sidebar />
+      <main className="main">
+        <Topbar />
+
+        <BriefView />
+        <ArchitectView />
+        <GenerateView />
+        <ReviewStageView />
+      </main>
       <div className="status-bar">
-        <div className="status-section"><span className="status-dot ok"></span><span>BRAIVE</span><strong>{buildName}</strong></div>
-        <div className="status-section"><span>STAGE</span><strong>{stage.toUpperCase()}{stage === "architect" ? ` · ${archSub.toUpperCase()}` : ""}</strong></div>
-        <div className="status-section"><strong>{campaigns.length}</strong>CAM · <strong>{totalAG}</strong>AG · <strong>{totalKW}</strong>KW · <strong>${(totalBudget / 1000).toFixed(0)}K</strong>/MO</div>
-        <div className="status-section spacer"></div>
-        <div className="status-section">AI<strong style={{ color: "var(--ai)", marginLeft: 4 }}>READY</strong></div>
-        <div className="status-section status-shortcut"><span className="kbd">⌘K</span><span>palette</span></div>
-        <div className="status-section status-shortcut"><span className="kbd">⌘⏎</span><span>generate</span></div>
+        <span className="status-section"><span className={classNames("status-dot", health === "ok" && "ok")} /> {health === "ok" ? "Live" : health}</span>
+        <span className="status-section">Stage <strong>{stage}</strong></span>
+        <span className="status-section spacer" />
+        <span className="status-section">v0.2 · BRAIVE Ads</span>
       </div>
 
-      {/* PALETTE */}
-      {paletteOpen && (
-        <div className="palette-overlay open" onClick={e => { if (e.target === e.currentTarget) setPaletteOpen(false); }}>
-          <div className="palette" onClick={e => e.stopPropagation()}>
-            <div className="palette-input-row">
-              <span className="palette-prompt">›</span>
-              <input ref={paletteInputRef} className="palette-input" type="text" placeholder="Type a command, search, or ask AI..." />
-              <span className="kbd">esc</span>
-            </div>
-            <p className="palette-section-label">Stages</p>
-            <div className="palette-row" onClick={() => { setStage("brief"); setPaletteOpen(false); }}>
-              <span className="palette-icon nav">1</span>
-              <span className="palette-row-text"><span className="palette-row-title">Brief</span></span>
-            </div>
-            {architectDone && (
-              <div className="palette-row" onClick={() => { setStage("architect"); setPaletteOpen(false); }}>
-                <span className="palette-icon nav">2</span>
-                <span className="palette-row-text"><span className="palette-row-title">Architect</span></span>
-              </div>
-            )}
-            {architectDone && (
-              <div className="palette-row" onClick={() => { setStage("generate"); setPaletteOpen(false); }}>
-                <span className="palette-icon nav">3</span>
-                <span className="palette-row-text"><span className="palette-row-title">Generate</span></span>
-              </div>
-            )}
-            <p className="palette-section-label">Actions</p>
-            <div className="palette-row" onClick={() => { scrapeUrl(); setPaletteOpen(false); }}>
-              <span className="palette-icon ai">b</span>
-              <span className="palette-row-text"><span className="palette-row-title">Re-scrape current URL</span></span>
-            </div>
-            {brief && (
-              <div className="palette-row" onClick={() => { proposeArchitecture(); setPaletteOpen(false); }}>
-                <span className="palette-icon ai">b</span>
-                <span className="palette-row-text"><span className="palette-row-title">Re-propose architecture</span></span>
-              </div>
-            )}
-            {architectDone && (
-              <div className="palette-row" onClick={() => { generateAllCopy(); setPaletteOpen(false); }}>
-                <span className="palette-icon ai">b</span>
-                <span className="palette-row-text"><span className="palette-row-title">Generate copy for all ad groups</span></span>
-                <span className="palette-row-shortcut">⌘⏎</span>
-              </div>
-            )}
-            <div className="palette-footer">
-              <span className="palette-footer-item"><span className="kbd">↑↓</span> nav</span>
-              <span className="palette-footer-item"><span className="kbd">↵</span> select</span>
-              <span className="palette-footer-item"><span className="kbd">esc</span> close</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* LOADING */}
+      {/* Loading overlay */}
       {loading && (
         <div className="loading-overlay">
           <div className="loading-card">
-            <div className="loading-spinner"></div>
+            <div className="loading-spinner" />
             <div>
-              <div className="loading-text">{loading.msg}</div>
+              <div className="loading-text">{loading.message}</div>
               {loading.sub && <span className="loading-text-mono">{loading.sub}</span>}
             </div>
           </div>
         </div>
       )}
 
-      {/* TOAST */}
-      {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
+      {/* Persistent error banner */}
+      {error && (
+        <div className="error-banner">
+          <div className="error-banner-h">
+            <span className="error-banner-tag">ERROR</span>
+            <span className="error-banner-msg">{error.message}</span>
+            <button
+              className="btn sm"
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify({ message: error.message, debug: error.debug }, null, 2));
+                setToast({ type: "success", message: "Debug copied" });
+              }}
+            >
+              Copy debug
+            </button>
+            <button className="btn sm ghost" onClick={() => setDebugOpen((o) => !o)}>
+              {debugOpen ? "Hide" : "Show"} JSON
+            </button>
+            <button className="btn sm ghost" onClick={() => setError(null)}>×</button>
+          </div>
+          {debugOpen && (
+            <pre className="error-banner-json">
+              {JSON.stringify({ message: error.message, debug: error.debug }, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && <div className={classNames("toast", toast.type)}>{toast.message}</div>}
+
+      {/* Review link modal */}
+      {reviewModal.open && reviewModal.url && (
+        <div className="modal-overlay" onClick={() => setReviewModal({ open: false })}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <strong>Review link generated</strong>
+              <button className="btn sm ghost" onClick={() => setReviewModal({ open: false })}>×</button>
+            </div>
+            <p className="modal-sub">
+              Send this link to the client. The session is stored locally on the device that opens it - works best when the client opens it on this same device for the demo.
+            </p>
+            <div className="modal-link">{reviewModal.url}</div>
+            <div className="modal-actions">
+              <button
+                className="btn primary"
+                onClick={() => {
+                  navigator.clipboard.writeText(reviewModal.url || "");
+                  setToast({ type: "success", message: "Link copied" });
+                }}
+              >
+                Copy link
+              </button>
+              <button
+                className="btn"
+                onClick={() => window.open(reviewModal.url, "_blank")}
+              >
+                Open in new tab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ============= REUSABLE: Keyword input =============
-function KeywordInput({ keywords, onAdd, onRemove, onCycle }: {
-  keywords: Keyword[]; onAdd: (text: string) => void; onRemove: (i: number) => void; onCycle: (i: number) => void;
-}) {
-  const [text, setText] = useState("");
-  return (
-    <div className="form-field">
-      <label className="form-label">Keywords <span className="optional">paste many at once or type one then Enter</span></label>
-      <div className="chip-input">
-        {keywords.map((kw, i) => (
-          <span key={i} className="chip-input-tag">
-            <span className={`kw-match ${kw.match}`} onClick={() => onCycle(i)} style={{ cursor: "pointer" }}>{matchLabels[kw.match]}</span>
-            <span style={{ marginLeft: 4 }}>{kw.text}</span>
-            <span className="x" onClick={() => onRemove(i)}>×</span>
-          </span>
-        ))}
-        <input
-          className="chip-input-text" value={text} onChange={e => setText(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const lines = text.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
-              lines.forEach(line => onAdd(line));
-              setText("");
-            }
-          }}
-          onPaste={e => {
-            const pasted = e.clipboardData.getData("text");
-            if (pasted.includes("\n") || pasted.includes(",")) {
-              e.preventDefault();
-              const lines = pasted.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
-              lines.forEach(line => onAdd(line));
-              setText("");
-            }
-          }}
-          placeholder={keywords.length === 0 ? "Type a keyword or paste a list..." : "Add another..."}
-        />
-      </div>
-    </div>
-  );
-}
+/* ============================================================
+   SMALL SUB-COMPONENT: Keyword add input
+   ============================================================ */
 
-// ============= REUSABLE: Chip input =============
-function ChipInput({ chips, onAdd, onRemove, placeholder }: {
-  chips: string[]; onAdd: (text: string) => void; onRemove: (i: number) => void; placeholder: string;
-}) {
-  const [text, setText] = useState("");
+function KwAdd({ onAdd }: { onAdd: (raw: string) => void }) {
+  const [val, setVal] = useState("");
   return (
-    <div className="chip-input">
-      {chips.map((chip, i) => (
-        <span key={i} className="chip-input-tag">
-          <span>{chip}</span>
-          <span className="x" onClick={() => onRemove(i)}>×</span>
-        </span>
-      ))}
-      <input
-        className="chip-input-text" value={text} onChange={e => setText(e.target.value)}
-        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onAdd(text); setText(""); } }}
-        placeholder={chips.length === 0 ? placeholder : "Add another..."}
-      />
-    </div>
+    <input
+      className="kw-add-input"
+      placeholder="+ add keyword (paste many)"
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === ",") {
+          e.preventDefault();
+          if (val.trim()) {
+            onAdd(val);
+            setVal("");
+          }
+        }
+      }}
+      onPaste={(e) => {
+        const text = e.clipboardData.getData("text");
+        if (text.includes("\n") || text.includes(",")) {
+          e.preventDefault();
+          onAdd(text);
+          setVal("");
+        }
+      }}
+      onBlur={() => {
+        if (val.trim()) {
+          onAdd(val);
+          setVal("");
+        }
+      }}
+    />
   );
 }
