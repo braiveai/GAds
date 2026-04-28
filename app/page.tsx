@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Home, Sparkles, Layers, FileText, Send, Plus, X, ChevronRight, ChevronDown, ChevronUp,
   Search, Upload, Star, StarOff, Wand2, Eye, Settings, RefreshCw, Trash2, Hash, Globe, Target,
-  ArrowRight, Check, Info, Download, ExternalLink, Filter,
+  ArrowRight, Check, Info, Download, ExternalLink, Filter, Pin,
 } from "lucide-react";
 
 /* ============================================================
@@ -852,56 +852,59 @@ export default function Page() {
     );
   }
 
-  /** Cycle a headline pin: null → 1 → 2 → 3 → null */
+  /** Cycle a headline pin: null → 1 → 2 → 3 → null. Auto-clears any other headline pinned to the same position. */
   function cycleHeadlinePin(campaignId: string, agId: string, idx: number) {
     setCampaigns((prev) =>
       prev.map((c) =>
         c.id === campaignId
           ? {
               ...c,
-              adGroups: c.adGroups.map((g) =>
-                g.id === agId && g.copy
-                  ? {
-                      ...g,
-                      copy: {
-                        ...g.copy,
-                        headlines: g.copy.headlines.map((hh, ii) => {
-                          if (ii !== idx) return hh;
-                          const next = hh.pin == null ? 1 : hh.pin === 1 ? 2 : hh.pin === 2 ? 3 : null;
-                          return { ...hh, pin: next };
-                        }),
-                      },
-                    }
-                  : g
-              ),
+              adGroups: c.adGroups.map((g) => {
+                if (g.id !== agId || !g.copy) return g;
+                const current = g.copy.headlines[idx]?.pin;
+                const next = current == null ? 1 : current === 1 ? 2 : current === 2 ? 3 : null;
+                return {
+                  ...g,
+                  copy: {
+                    ...g.copy,
+                    headlines: g.copy.headlines.map((hh, ii) => {
+                      if (ii === idx) return { ...hh, pin: next };
+                      // dedupe: if another row was pinned to `next`, unpin it
+                      if (next != null && hh.pin === next) return { ...hh, pin: null };
+                      return hh;
+                    }),
+                  },
+                };
+              }),
             }
           : c
       )
     );
   }
 
-  /** Cycle a description pin: null → 1 → 2 → null */
+  /** Cycle a description pin: null → 1 → 2 → null (Google only allows pin 1 or 2 for descriptions). Dedupe same as headlines. */
   function cycleDescriptionPin(campaignId: string, agId: string, idx: number) {
     setCampaigns((prev) =>
       prev.map((c) =>
         c.id === campaignId
           ? {
               ...c,
-              adGroups: c.adGroups.map((g) =>
-                g.id === agId && g.copy
-                  ? {
-                      ...g,
-                      copy: {
-                        ...g.copy,
-                        descriptions: g.copy.descriptions.map((dd, ii) => {
-                          if (ii !== idx) return dd;
-                          const next = dd.pin == null ? 1 : dd.pin === 1 ? 2 : null;
-                          return { ...dd, pin: next };
-                        }),
-                      },
-                    }
-                  : g
-              ),
+              adGroups: c.adGroups.map((g) => {
+                if (g.id !== agId || !g.copy) return g;
+                const current = g.copy.descriptions[idx]?.pin;
+                const next = current == null ? 1 : current === 1 ? 2 : null;
+                return {
+                  ...g,
+                  copy: {
+                    ...g.copy,
+                    descriptions: g.copy.descriptions.map((dd, ii) => {
+                      if (ii === idx) return { ...dd, pin: next };
+                      if (next != null && dd.pin === next) return { ...dd, pin: null };
+                      return dd;
+                    }),
+                  },
+                };
+              }),
             }
           : c
       )
@@ -2006,11 +2009,12 @@ export default function Page() {
                                 {h.angle}
                               </span>
                               <button
-                                className={classNames("pin-btn", h.pin != null && "pinned", h.pin != null && `p${h.pin}`)}
+                                className={classNames("pin-icon-btn", h.pin != null && "pinned", h.pin != null && `p${h.pin}`)}
                                 onClick={() => cycleHeadlinePin(active.campaign.id, active.ag.id, i)}
-                                title={h.pin == null ? "Click to pin (cycles P1 → P2 → P3 → none)" : `Pinned to position ${h.pin} - click to cycle`}
+                                title={h.pin == null ? "Click to pin (cycles P1 → P2 → P3 → none). Pinning auto-unpins any other headline already at that position." : `Pinned to position ${h.pin} - click to cycle`}
                               >
-                                {h.pin == null ? "—" : `P${h.pin}`}
+                                <Pin size={11} fill={h.pin != null ? "currentColor" : "none"} />
+                                {h.pin != null && <span className="pin-num">{h.pin}</span>}
                               </button>
                             </div>
                           ))}
@@ -2029,11 +2033,12 @@ export default function Page() {
                               </span>
                               <span className={classNames("asset-angle", d.angle)} title={`Angle: ${d.angle}`}>{d.angle}</span>
                               <button
-                                className={classNames("pin-btn", d.pin != null && "pinned", d.pin != null && `p${d.pin}`)}
+                                className={classNames("pin-icon-btn", d.pin != null && "pinned", d.pin != null && `p${d.pin}`)}
                                 onClick={() => cycleDescriptionPin(active.campaign.id, active.ag.id, i)}
                                 title={d.pin == null ? "Click to pin (cycles P1 → P2 → none). Descriptions only support P1 and P2." : `Pinned to position ${d.pin} - click to cycle`}
                               >
-                                {d.pin == null ? "—" : `P${d.pin}`}
+                                <Pin size={11} fill={d.pin != null ? "currentColor" : "none"} />
+                                {d.pin != null && <span className="pin-num">{d.pin}</span>}
                               </button>
                             </div>
                           ))}
