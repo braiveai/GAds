@@ -25,6 +25,13 @@ type Brief = {
   pagesScraped?: number;
 };
 
+type UserContext = {
+  about?: string;
+  audience?: string;
+  goals?: string;
+  notes?: string;
+};
+
 type Keyword = { id: string; text: string; match: Match; estimatedVolume?: string };
 type Headline = { id?: string; text: string; angle: string; pin: number | null; length?: number; overLimit?: boolean; isDki?: boolean };
 type Description = { id?: string; text: string; angle: string; pin: number | null; length?: number; overLimit?: boolean };
@@ -50,6 +57,7 @@ type Campaign = {
   audiences: string[];
   negatives: string[];
   aiNote: string;
+  clientRationale?: string;
   adGroups: AdGroup[];
   accent?: string;
 };
@@ -85,8 +93,9 @@ const ARCH_SUBS: { key: ArchSub; label: string; sub: string }[] = [
   { key: "review", label: "Review", sub: "04" },
 ];
 
-const PERSIST_KEY = "braive_ads_state_v1";
-const ACCENTS = ["#2541E8", "#0F9D6F", "#1F6E8C", "#C24A1F"];
+const PERSIST_KEY = "braive_ads_state_v2";
+const ACCENTS = ["#FF66C3", "#1A1A1A", "#666666", "#E64FAB"];
+const DAYS_PER_MONTH = 30.4;
 
 /* ============================================================
    HELPERS
@@ -117,8 +126,46 @@ function safeHost(url: string) {
   }
 }
 
+function fmtMoney(n: number) {
+  return `$${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
+}
+
+function pickHeadlinesByAngle(headlines: Headline[], wanted: string[]): Headline[] {
+  // Always keep headline 0 (DKI) as anchor
+  const anchor = headlines[0];
+  const rest = headlines.slice(1);
+  const matched: Headline[] = [];
+  for (const angle of wanted) {
+    const found = rest.find((h) => h.angle === angle && !matched.includes(h));
+    if (found) matched.push(found);
+  }
+  // pad with any if we didn't find enough
+  for (const h of rest) {
+    if (matched.length >= 2) break;
+    if (!matched.includes(h)) matched.push(h);
+  }
+  const result: Headline[] = [];
+  if (anchor) result.push(anchor);
+  result.push(...matched.slice(0, 2));
+  return result.slice(0, 3);
+}
+
+function pickDescriptionByAngle(descs: Description[], wanted: string[]): Description | undefined {
+  for (const a of wanted) {
+    const found = descs.find((d) => d.angle === a);
+    if (found) return found;
+  }
+  return descs[0];
+}
+
+const SERP_VARIANTS = [
+  { key: "benefit", label: "Benefit-led", angles: ["benefit", "proof"] },
+  { key: "usp", label: "USP-led", angles: ["usp", "qualifier"] },
+  { key: "urgency", label: "Urgency-led", angles: ["urgency", "cta"] },
+];
+
 /* ============================================================
-   STABLE SUB-COMPONENT (module scope - safe, has its own state)
+   STABLE SUB-COMPONENT
    ============================================================ */
 
 function KwAdd({ onAdd }: { onAdd: (raw: string) => void }) {
@@ -161,7 +208,7 @@ function KwAdd({ onAdd }: { onAdd: (raw: string) => void }) {
    ============================================================ */
 
 export default function Page() {
-  // Persisted
+  // Persisted core
   const [stage, setStage] = useState<Stage>("brief");
   const [archSub, setArchSub] = useState<ArchSub>("campaigns");
   const [briefUrl, setBriefUrl] = useState("");
@@ -170,6 +217,14 @@ export default function Page() {
   const [channels, setChannels] = useState<Channel[]>(["Search"]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [activeAdGroupKey, setActiveAdGroupKey] = useState<string | null>(null);
+  const [strategySummary, setStrategySummary] = useState<string>("");
+
+  // New persisted inputs
+  const [userContext, setUserContext] = useState<UserContext>({});
+  const [brandGuidelines, setBrandGuidelines] = useState<string>("");
+  const [nameSuffix, setNameSuffix] = useState<string>("SD");
+  const [accountNegatives, setAccountNegatives] = useState<string[]>([]);
+  const [contextOpen, setContextOpen] = useState(false);
 
   // UI-only
   const [error, setError] = useState<ErrorState>(null);
@@ -179,6 +234,8 @@ export default function Page() {
   const [healthInfo, setHealthInfo] = useState<any>(null);
   const [reviewModal, setReviewModal] = useState<{ open: boolean; token?: string; url?: string }>({ open: false });
   const [debugOpen, setDebugOpen] = useState(false);
+  const [serpVariantIdx, setSerpVariantIdx] = useState(0);
+  const [bulkKw, setBulkKw] = useState<{ open: boolean; campaignId?: string; agId?: string; text: string }>({ open: false, text: "" });
   const restoredRef = useRef(false);
 
   /* ----- Restore from localStorage on mount ----- */
@@ -196,6 +253,11 @@ export default function Page() {
         if (s.stage) setStage(s.stage);
         if (s.archSub) setArchSub(s.archSub);
         if (s.activeAdGroupKey) setActiveAdGroupKey(s.activeAdGroupKey);
+        if (s.userContext) setUserContext(s.userContext);
+        if (typeof s.brandGuidelines === "string") setBrandGuidelines(s.brandGuidelines);
+        if (typeof s.nameSuffix === "string") setNameSuffix(s.nameSuffix);
+        if (Array.isArray(s.accountNegatives)) setAccountNegatives(s.accountNegatives);
+        if (typeof s.strategySummary === "string") setStrategySummary(s.strategySummary);
       }
     } catch {}
     restoredRef.current = true;
@@ -206,10 +268,24 @@ export default function Page() {
     if (!restoredRef.current) return;
     if (typeof window === "undefined") return;
     try {
-      const payload = { briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey };
+      const payload = {
+        briefUrl,
+        brief,
+        leanValue,
+        channels,
+        campaigns,
+        stage,
+        archSub,
+        activeAdGroupKey,
+        userContext,
+        brandGuidelines,
+        nameSuffix,
+        accountNegatives,
+        strategySummary,
+      };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
     } catch {}
-  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey]);
+  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary]);
 
   /* ----- Health check on mount ----- */
   useEffect(() => {
@@ -288,6 +364,10 @@ export default function Page() {
           angles: brief.angles,
           leanPercent: leanValue,
           channels,
+          nameSuffix,
+          accountNegatives,
+          userContext,
+          brandGuidelines,
         }),
       });
       const data = await res.json();
@@ -296,6 +376,7 @@ export default function Page() {
         return;
       }
       setCampaigns(data.campaigns || []);
+      setStrategySummary(data.strategySummary || "");
       setStage("architect");
       setArchSub("campaigns");
       const firstC = data.campaigns?.[0];
@@ -309,33 +390,39 @@ export default function Page() {
     }
   }
 
+  async function generateCopyFor(campaign: Campaign, adGroup: AdGroup): Promise<Copy | null> {
+    if (!brief) return null;
+    const res = await fetch("/api/generate-copy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand: brief.brand,
+        angles: brief.angles,
+        leanPercent: leanValue,
+        campaign: { name: campaign.name, structure: campaign.structure, channelType: campaign.channelType },
+        adGroup,
+        userContext,
+        brandGuidelines,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return {
+      headlines: data.headlines || [],
+      descriptions: data.descriptions || [],
+      paths: data.paths || [],
+      sitelinks: data.sitelinks || [],
+    };
+  }
+
   async function handleGenerateCopy(campaign: Campaign, adGroup: AdGroup) {
-    if (!brief) return;
     setError(null);
     setLoading({ message: "Generating RSA copy", sub: `${adGroup.name}...` });
     try {
-      const res = await fetch("/api/generate-copy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brand: brief.brand,
-          angles: brief.angles,
-          leanPercent: leanValue,
-          campaign: { name: campaign.name, structure: campaign.structure, channelType: campaign.channelType },
-          adGroup,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setError({ message: data.error || `HTTP ${res.status}`, debug: data.debug });
-        return;
-      }
-      const newCopy: Copy = {
-        headlines: data.headlines || [],
-        descriptions: data.descriptions || [],
-        paths: data.paths || [],
-        sitelinks: data.sitelinks || [],
-      };
+      const newCopy = await generateCopyFor(campaign, adGroup);
+      if (!newCopy) return;
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === campaign.id
@@ -348,6 +435,46 @@ export default function Page() {
       setError({ message: err?.message || String(err), debug: { exception: String(err) } });
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function handleGenerateAll() {
+    setError(null);
+    const todo: { campaign: Campaign; adGroup: AdGroup }[] = [];
+    for (const c of campaigns) {
+      for (const g of c.adGroups) {
+        if (!g.copy) todo.push({ campaign: c, adGroup: g });
+      }
+    }
+    if (!todo.length) {
+      setToast({ type: "info", message: "All ad groups already have copy" });
+      return;
+    }
+    let i = 0;
+    let failures = 0;
+    for (const { campaign, adGroup } of todo) {
+      i++;
+      setLoading({ message: `Generating copy ${i}/${todo.length}`, sub: adGroup.name });
+      try {
+        const newCopy = await generateCopyFor(campaign, adGroup);
+        if (newCopy) {
+          setCampaigns((prev) =>
+            prev.map((c) =>
+              c.id === campaign.id
+                ? { ...c, adGroups: c.adGroups.map((g) => (g.id === adGroup.id ? { ...g, copy: newCopy } : g)) }
+                : c
+            )
+          );
+        }
+      } catch (err: any) {
+        failures++;
+      }
+    }
+    setLoading(null);
+    if (failures) {
+      setError({ message: `${failures} of ${todo.length} ad groups failed to generate. Check the debug for the last failure.`, debug: { failures, total: todo.length } });
+    } else {
+      setToast({ type: "success", message: `Generated copy for ${todo.length} ad group${todo.length === 1 ? "" : "s"}` });
     }
   }
 
@@ -399,6 +526,7 @@ export default function Page() {
       brandName: undefined,
       baseUrl: briefUrl,
       campaigns,
+      strategySummary,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -425,6 +553,11 @@ export default function Page() {
     setStage("brief");
     setArchSub("campaigns");
     setError(null);
+    setUserContext({});
+    setBrandGuidelines("");
+    setNameSuffix("SD");
+    setAccountNegatives([]);
+    setStrategySummary("");
   }
 
   /* ----- Mutators ----- */
@@ -435,7 +568,7 @@ export default function Page() {
   function addCampaign() {
     const next: Campaign = {
       id: rid("c"),
-      name: "New theme x sub-theme | SD",
+      name: `New theme x sub-theme | ${(nameSuffix || "SD").toUpperCase()}`,
       structure: "MKAG",
       channelType: "Search",
       budget: 50,
@@ -517,12 +650,7 @@ export default function Page() {
                         ...g.copy,
                         headlines: g.copy.headlines.map((hh, ii) =>
                           ii === idx
-                            ? {
-                                ...hh,
-                                text: newText,
-                                length: dkiVisible(newText).length,
-                                overLimit: dkiVisible(newText).length > 30,
-                              }
+                            ? { ...hh, text: newText, length: dkiVisible(newText).length, overLimit: dkiVisible(newText).length > 30 }
                             : hh
                         ),
                       },
@@ -549,12 +677,7 @@ export default function Page() {
                         ...g.copy,
                         descriptions: g.copy.descriptions.map((dd, ii) =>
                           ii === idx
-                            ? {
-                                ...dd,
-                                text: newText,
-                                length: newText.length,
-                                overLimit: newText.length > 90,
-                              }
+                            ? { ...dd, text: newText, length: newText.length, overLimit: newText.length > 90 }
                             : dd
                         ),
                       },
@@ -605,6 +728,13 @@ export default function Page() {
   }
   const active = allAdGroups.find((x) => x.key === activeAdGroupKey) || allAdGroups[0];
 
+  const totalDailyBudget = campaigns.reduce((s, c) => s + (Number(c.budget) || 0), 0);
+  const totalMonthlyBudget = totalDailyBudget * DAYS_PER_MONTH;
+  const totalAdGroups = campaigns.reduce((s, c) => s + c.adGroups.length, 0);
+  const totalKeywords = campaigns.reduce((s, c) => s + c.adGroups.reduce((s2, g) => s2 + g.keywords.length, 0), 0);
+  const adGroupsWithCopy = allAdGroups.filter((x) => x.ag.copy).length;
+  const adGroupsTotal = allAdGroups.length;
+
   const stageLabels: Record<Stage, string> = {
     brief: "Brief",
     architect: "Architect",
@@ -612,8 +742,13 @@ export default function Page() {
     review: "Client review",
   };
 
+  /* ----- SERP variant for current ad group ----- */
+  const serpVariant = SERP_VARIANTS[serpVariantIdx % SERP_VARIANTS.length];
+  const serpHeadlines = active?.ag.copy ? pickHeadlinesByAngle(active.ag.copy.headlines, serpVariant.angles) : [];
+  const serpDesc = active?.ag.copy ? pickDescriptionByAngle(active.ag.copy.descriptions, serpVariant.angles) : undefined;
+
   /* ============================================================
-     RENDER (one big tree, no inner function components)
+     RENDER
      ============================================================ */
 
   return (
@@ -690,7 +825,7 @@ export default function Page() {
       {/* ============ MAIN ============ */}
       <main className="main">
 
-        {/* ----- TOPBAR ----- */}
+        {/* TOPBAR */}
         <div className="topbar">
           <div className="breadcrumb">
             <span className="breadcrumb-segment">Builds</span>
@@ -741,6 +876,96 @@ export default function Page() {
             <p className="text-helper">
               uses real browser headers, follows redirects, 15s timeout. extracts via Sonnet tool_use schema.
             </p>
+
+            {/* Optional context expander */}
+            <div className="brief-section">
+              <button
+                type="button"
+                className="context-toggle"
+                onClick={() => setContextOpen((o) => !o)}
+              >
+                <span className="context-toggle-chev">{contextOpen ? "▾" : "▸"}</span>
+                <span>Add more context (optional)</span>
+                <span className="context-toggle-meta">
+                  {[userContext.about, userContext.audience, userContext.goals, userContext.notes, brandGuidelines].filter(Boolean).length} fields filled
+                </span>
+              </button>
+              {contextOpen && (
+                <div className="context-grid">
+                  <div className="context-field">
+                    <label>What does the business do? <em>(optional, but helps)</em></label>
+                    <textarea
+                      className="text-input"
+                      rows={2}
+                      placeholder="e.g. We help indie agencies deploy AI workflows so they can do more profitable work with the same headcount."
+                      value={userContext.about || ""}
+                      onChange={(e) => setUserContext({ ...userContext, about: e.target.value })}
+                    />
+                  </div>
+                  <div className="context-field">
+                    <label>Ideal customer</label>
+                    <textarea
+                      className="text-input"
+                      rows={2}
+                      placeholder="e.g. Aus/NZ independent media agencies with 5-50 staff and growth ambition."
+                      value={userContext.audience || ""}
+                      onChange={(e) => setUserContext({ ...userContext, audience: e.target.value })}
+                    />
+                  </div>
+                  <div className="context-field">
+                    <label>Campaign goal</label>
+                    <textarea
+                      className="text-input"
+                      rows={2}
+                      placeholder="e.g. Lead gen for 30-min discovery calls. Cost per qualified lead under $200."
+                      value={userContext.goals || ""}
+                      onChange={(e) => setUserContext({ ...userContext, goals: e.target.value })}
+                    />
+                  </div>
+                  <div className="context-field">
+                    <label>Anything else?</label>
+                    <textarea
+                      className="text-input"
+                      rows={2}
+                      placeholder="e.g. Don't mention competitors by name. Focus on speed of implementation."
+                      value={userContext.notes || ""}
+                      onChange={(e) => setUserContext({ ...userContext, notes: e.target.value })}
+                    />
+                  </div>
+                  <div className="context-field context-field-wide">
+                    <label>Brand guidelines <em>(paste tone of voice, do/don'ts, banned phrases)</em></label>
+                    <textarea
+                      className="text-input"
+                      rows={4}
+                      placeholder="Paste anything - tone of voice, banned terms, mandatory disclaimers, RTBs, anything that should shape the copy."
+                      value={brandGuidelines}
+                      onChange={(e) => setBrandGuidelines(e.target.value)}
+                    />
+                  </div>
+                  <div className="context-field">
+                    <label>Naming suffix <em>(used in campaign names)</em></label>
+                    <input
+                      className="text-input"
+                      maxLength={8}
+                      placeholder="SD"
+                      value={nameSuffix}
+                      onChange={(e) => setNameSuffix(e.target.value.toUpperCase())}
+                    />
+                    <span className="context-helper">e.g. SD, SA, NZ - appears as "Theme x Sub-theme | {nameSuffix || "SD"}"</span>
+                  </div>
+                  <div className="context-field">
+                    <label>Account-wide negatives <em>(comma-sep)</em></label>
+                    <input
+                      className="text-input"
+                      placeholder="free, jobs, careers, login"
+                      value={accountNegatives.join(", ")}
+                      onChange={(e) => setAccountNegatives(e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
+                    />
+                    <span className="context-helper">applied across all campaigns - we'll skip duplicates at campaign level</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {brief && (
               <>
@@ -849,7 +1074,7 @@ export default function Page() {
 
                 <div className="action-row">
                   <span className="summary">
-                    <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration lean
+                    <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SD"}</strong>
                   </span>
                   <button className="btn primary" onClick={handleProposeArchitecture} disabled={!!loading}>
                     Architect →
@@ -870,6 +1095,44 @@ export default function Page() {
             </div>
           </div>
 
+          {/* Strategy summary banner - ALWAYS visible at top of Architect */}
+          {strategySummary && (
+            <div className="strategy-banner">
+              <div className="strategy-banner-label">Strategy summary <em>(use this when briefing the client)</em></div>
+              <p className="strategy-banner-text">{strategySummary}</p>
+            </div>
+          )}
+
+          {/* Budget running total */}
+          {campaigns.length > 0 && (
+            <div className="budget-bar">
+              <div className="budget-stat">
+                <span className="budget-stat-label">Daily total</span>
+                <span className="budget-stat-value">{fmtMoney(totalDailyBudget)}</span>
+              </div>
+              <div className="budget-stat">
+                <span className="budget-stat-label">Monthly (×30.4)</span>
+                <span className="budget-stat-value accent">{fmtMoney(totalMonthlyBudget)}</span>
+              </div>
+              <div className="budget-stat">
+                <span className="budget-stat-label">Campaigns</span>
+                <span className="budget-stat-value">{campaigns.length}</span>
+              </div>
+              <div className="budget-stat">
+                <span className="budget-stat-label">Ad groups</span>
+                <span className="budget-stat-value">{totalAdGroups}</span>
+              </div>
+              <div className="budget-stat">
+                <span className="budget-stat-label">Keywords</span>
+                <span className="budget-stat-value">{totalKeywords}</span>
+              </div>
+              <div className="budget-stat">
+                <span className="budget-stat-label">Account negatives</span>
+                <span className="budget-stat-value">{accountNegatives.length}</span>
+              </div>
+            </div>
+          )}
+
           <div className="arch-substages">
             {ARCH_SUBS.map((s) => (
               <button
@@ -889,7 +1152,7 @@ export default function Page() {
             <div className="substage-content wide">
               <div className="substage-intro">
                 <h2>Campaigns</h2>
-                <p>Name, structure, channel, budget. Naming convention: <code className="mono-inline">{`{Theme} x {Sub-theme} | SD`}</code></p>
+                <p>Name, structure, channel, budget. Each campaign has a <strong>client rationale</strong> below the form - that's what to walk a client through.</p>
               </div>
               <div className="campaign-form-list">
                 {campaigns.map((c) => (
@@ -940,6 +1203,7 @@ export default function Page() {
                           value={c.budget}
                           onChange={(e) => updateCampaign(c.id, { budget: Number(e.target.value) })}
                         />
+                        <span className="context-helper">~{fmtMoney(c.budget * DAYS_PER_MONTH)}/month</span>
                       </div>
                       <div className="cfc-field">
                         <label>Ad groups</label>
@@ -950,6 +1214,12 @@ export default function Page() {
                       </div>
                     </div>
                     {c.aiNote && <div className="ai-inline">{c.aiNote}</div>}
+                    {c.clientRationale && (
+                      <div className="rationale-block">
+                        <div className="rationale-label">For the client</div>
+                        <p className="rationale-text">{c.clientRationale}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
                 <button className="add-campaign-btn" onClick={addCampaign}>+ Add campaign</button>
@@ -961,7 +1231,7 @@ export default function Page() {
             <div className="substage-content wide">
               <div className="substage-intro">
                 <h2>Keywords</h2>
-                <p>Click a match label (PHR / EXC / BRD) to cycle. Paste multiple keywords - newlines or commas split them.</p>
+                <p>Click a match label (PHR / EXC / BRD) to cycle. Type/paste/bulk-upload keywords. Newlines or commas split them.</p>
               </div>
               {campaigns.map((c) => (
                 <div key={c.id} className="kw-block">
@@ -976,6 +1246,12 @@ export default function Page() {
                         <strong>{g.name}</strong>
                         <span className="kw-group-meta">{g.landingPath}</span>
                         <span className="kw-group-count">{g.keywords.length} keywords</span>
+                        <button
+                          className="btn sm ghost"
+                          onClick={() => setBulkKw({ open: true, campaignId: c.id, agId: g.id, text: "" })}
+                        >
+                          Bulk add
+                        </button>
                       </div>
                       <div className="kw-list">
                         {g.keywords.map((k) => (
@@ -1008,8 +1284,16 @@ export default function Page() {
             <div className="substage-content wide">
               <div className="substage-intro">
                 <h2>Targeting</h2>
-                <p>Locations, audiences, negatives, bid strategy.</p>
+                <p>Locations, audiences, negatives, bid strategy. Account-wide negatives are managed on the Brief stage.</p>
               </div>
+              {accountNegatives.length > 0 && (
+                <div className="acc-neg-block">
+                  <div className="acc-neg-label">Account-wide negatives <em>(applied to all campaigns)</em></div>
+                  <div className="fp-tags">
+                    {accountNegatives.map((n, i) => <span key={i} className="fp-tag">{n}</span>)}
+                  </div>
+                </div>
+              )}
               {campaigns.map((c) => (
                 <div key={c.id} className="campaign-form-card">
                   <div className="cfc-h">
@@ -1046,7 +1330,7 @@ export default function Page() {
                       />
                     </div>
                     <div className="cfc-field cfc-field-wide">
-                      <label>Negative keywords</label>
+                      <label>Campaign-level negatives</label>
                       <input
                         className="text-input"
                         value={c.negatives.join(", ")}
@@ -1118,8 +1402,9 @@ export default function Page() {
               <div className="action-row">
                 <span className="summary">
                   <strong>{campaigns.length}</strong> campaigns ·{" "}
-                  <strong>{campaigns.reduce((s, c) => s + c.adGroups.length, 0)}</strong> ad groups ·{" "}
-                  <strong>{campaigns.reduce((s, c) => s + c.adGroups.reduce((s2, g) => s2 + g.keywords.length, 0), 0)}</strong> keywords
+                  <strong>{totalAdGroups}</strong> ad groups ·{" "}
+                  <strong>{totalKeywords}</strong> keywords ·{" "}
+                  <strong>{fmtMoney(totalMonthlyBudget)}</strong>/mo
                 </span>
                 <button className="btn primary" onClick={() => setStage("generate")}>Generate copy →</button>
               </div>
@@ -1142,7 +1427,57 @@ export default function Page() {
                   <h1 className="stage-title">Generate <em>RSA copy</em></h1>
                   <p className="stage-sub">15 headlines, 5 descriptions, 2 paths, 6 sitelinks per ad group. H1 is DKI.</p>
                 </div>
+                <div className="gen-header-actions">
+                  <span className="gen-progress">{adGroupsWithCopy}/{adGroupsTotal} done</span>
+                  <button className="btn primary" onClick={handleGenerateAll} disabled={!!loading}>
+                    Generate all
+                  </button>
+                </div>
               </div>
+
+              {/* SERP preview - bigger, at top, with variant cycling */}
+              {active?.ag.copy && serpHeadlines.length > 0 && (
+                <div className="serp-hero">
+                  <div className="serp-hero-h">
+                    <div className="label-mono">SERP preview <span className="count">{serpVariant.label}</span></div>
+                    <div className="serp-cycle">
+                      <button
+                        className="btn sm ghost"
+                        onClick={() => setSerpVariantIdx((i) => (i - 1 + SERP_VARIANTS.length) % SERP_VARIANTS.length)}
+                      >‹ Prev</button>
+                      {SERP_VARIANTS.map((v, i) => (
+                        <button
+                          key={v.key}
+                          className={classNames("btn sm", i === serpVariantIdx && "primary")}
+                          onClick={() => setSerpVariantIdx(i)}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                      <button
+                        className="btn sm ghost"
+                        onClick={() => setSerpVariantIdx((i) => (i + 1) % SERP_VARIANTS.length)}
+                      >Next ›</button>
+                    </div>
+                  </div>
+                  <div className="serp-hero-card">
+                    <div className="serp-source">
+                      <div className="serp-favicon">{(safeHost(briefUrl) || "B").charAt(0).toUpperCase()}</div>
+                      <div className="serp-source-text">
+                        <span className="serp-sponsored">Sponsored</span>
+                        <span className="serp-domain">
+                          {safeHost(briefUrl)}
+                          <span className="url-rest"> › {active.ag.copy.paths[0]}{active.ag.copy.paths[1] ? ` › ${active.ag.copy.paths[1]}` : ""}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="serp-hero-headline">
+                      {serpHeadlines.map((h) => dkiVisible(h.text)).join("  ·  ")}
+                    </div>
+                    <p className="serp-hero-desc">{serpDesc?.text || ""}</p>
+                  </div>
+                </div>
+              )}
 
               <div className="gen-shell">
                 <div>
@@ -1226,7 +1561,7 @@ export default function Page() {
                       ) : (
                         <div className="brief-empty-state">
                           <strong>No copy generated yet</strong>
-                          Hit "Generate copy" to create 15 headlines, 5 descriptions, 2 paths, and 6 sitelinks for this ad group.
+                          Hit "Generate copy" for this ad group, or "Generate all" at the top to do every ad group in one go.
                         </div>
                       )}
                     </>
@@ -1234,7 +1569,7 @@ export default function Page() {
                 </div>
 
                 <aside className="gen-side">
-                  <div className="label-mono">Ad groups</div>
+                  <div className="label-mono">Ad groups <span className="count">{adGroupsWithCopy}/{adGroupsTotal}</span></div>
                   <div className="gen-adgroup-list">
                     {allAdGroups.map(({ ag: g, key }) => (
                       <button
@@ -1247,24 +1582,6 @@ export default function Page() {
                       </button>
                     ))}
                   </div>
-                  {active?.ag.copy && (
-                    <>
-                      <div className="label-mono">SERP preview</div>
-                      <div className="serp-card">
-                        <div className="serp-source">
-                          <div className="serp-favicon">{(safeHost(briefUrl) || "B").charAt(0).toUpperCase()}</div>
-                          <div className="serp-source-text">
-                            <span className="serp-sponsored">Sponsored</span>
-                            <span className="serp-domain">{safeHost(briefUrl)} <span className="url-rest">› {active.ag.copy.paths[0]}</span></span>
-                          </div>
-                        </div>
-                        <div className="serp-headline">
-                          {active.ag.copy.headlines.slice(0, 3).map((h) => dkiVisible(h.text)).join(" · ")}
-                        </div>
-                        <p className="serp-desc">{active.ag.copy.descriptions[0]?.text || ""}</p>
-                      </div>
-                    </>
-                  )}
                 </aside>
               </div>
             </>
@@ -1291,15 +1608,18 @@ export default function Page() {
         </div>
       </main>
 
-      {/* ----- STATUS BAR ----- */}
+      {/* STATUS BAR */}
       <div className="status-bar">
         <span className="status-section"><span className={classNames("status-dot", health === "ok" && "ok")} /> {health === "ok" ? "Live" : health}</span>
         <span className="status-section">Stage <strong>{stage}</strong></span>
+        {campaigns.length > 0 && (
+          <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
+        )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.2 · BRAIVE Ads</span>
+        <span className="status-section">v0.3 · BRAIVE Ads</span>
       </div>
 
-      {/* ----- LOADING OVERLAY ----- */}
+      {/* LOADING OVERLAY */}
       {loading && (
         <div className="loading-overlay">
           <div className="loading-card">
@@ -1312,7 +1632,7 @@ export default function Page() {
         </div>
       )}
 
-      {/* ----- PERSISTENT ERROR BANNER ----- */}
+      {/* PERSISTENT ERROR BANNER */}
       {error && (
         <div className="error-banner">
           <div className="error-banner-h">
@@ -1340,10 +1660,10 @@ export default function Page() {
         </div>
       )}
 
-      {/* ----- TOAST ----- */}
+      {/* TOAST */}
       {toast && <div className={classNames("toast", toast.type)}>{toast.message}</div>}
 
-      {/* ----- REVIEW LINK MODAL ----- */}
+      {/* REVIEW LINK MODAL */}
       {reviewModal.open && reviewModal.url && (
         <div className="modal-overlay" onClick={() => setReviewModal({ open: false })}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1371,6 +1691,43 @@ export default function Page() {
               >
                 Open in new tab
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BULK KW MODAL */}
+      {bulkKw.open && (
+        <div className="modal-overlay" onClick={() => setBulkKw({ open: false, text: "" })}>
+          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <strong>Bulk add keywords</strong>
+              <button className="btn sm ghost" onClick={() => setBulkKw({ open: false, text: "" })}>×</button>
+            </div>
+            <p className="modal-sub">Paste keywords - one per line, or comma-separated. All added as PHR by default; click any chip to cycle match types after.</p>
+            <textarea
+              className="text-input"
+              rows={10}
+              placeholder={"solar quotes\nsolar installation brisbane\nbest solar panels"}
+              value={bulkKw.text}
+              onChange={(e) => setBulkKw({ ...bulkKw, text: e.target.value })}
+              style={{ width: "calc(100% - 36px)", margin: "0 18px", fontFamily: "var(--font-mono)", fontSize: 12 }}
+            />
+            <div className="modal-actions">
+              <button
+                className="btn primary"
+                onClick={() => {
+                  if (bulkKw.campaignId && bulkKw.agId && bulkKw.text.trim()) {
+                    addKeywords(bulkKw.campaignId, bulkKw.agId, bulkKw.text);
+                    const count = bulkKw.text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length;
+                    setToast({ type: "success", message: `Added ${count} keyword${count === 1 ? "" : "s"}` });
+                  }
+                  setBulkKw({ open: false, text: "" });
+                }}
+              >
+                Add keywords
+              </button>
+              <button className="btn" onClick={() => setBulkKw({ open: false, text: "" })}>Cancel</button>
             </div>
           </div>
         </div>

@@ -10,14 +10,14 @@ const ANGLES = ["benefit", "usp", "urgency", "proof", "qualifier", "cta"] as con
 const copyTool = {
   name: "submit_rsa_copy",
   description:
-    "Submit Google Ads RSA copy. Australian English. Title Case headlines, sentence case descriptions/paths/sitelinks. No em dashes — use hyphens.",
+    "Submit Google Ads RSA copy. Australian English. Title Case headlines, sentence case descriptions/paths/sitelinks. No em dashes - use hyphens. STRICT character limits enforced.",
   input_schema: {
     type: "object",
     properties: {
       headlines: {
         type: "array",
         description:
-          "Exactly 15 headlines. Headline 1 must be DKI in the form '{KeyWord:Default Text}' with pin = 1. Default text must be <= 30 characters. Other headlines <= 30 chars. Most headlines should have pin = null. A small number can have pin 2 or 3.",
+          "Exactly 15 headlines. Headline 1 must be DKI in the form '{KeyWord:Default Text}' with pin = 1. Default text must be <= 30 characters. Other headlines <= 30 chars. Most headlines should have pin = null.",
         minItems: 15,
         maxItems: 15,
         items: {
@@ -32,13 +32,14 @@ const copyTool = {
       },
       descriptions: {
         type: "array",
-        description: "Exactly 5 descriptions, each <= 90 characters.",
+        description:
+          "Exactly 5 descriptions. EACH MUST BE <= 90 CHARACTERS INCLUDING SPACES. Count carefully before submitting. If your draft exceeds 90, shorten it.",
         minItems: 5,
         maxItems: 5,
         items: {
           type: "object",
           properties: {
-            text: { type: "string" },
+            text: { type: "string", maxLength: 90 },
             angle: { type: "string", enum: [...ANGLES] },
             pin: { type: ["integer", "null"], enum: [1, 2, null] },
           },
@@ -50,7 +51,7 @@ const copyTool = {
         description: "Exactly 2 display paths, each <= 15 characters, sentence case, no spaces (use hyphens).",
         minItems: 2,
         maxItems: 2,
-        items: { type: "string" },
+        items: { type: "string", maxLength: 15 },
       },
       sitelinks: {
         type: "array",
@@ -60,9 +61,9 @@ const copyTool = {
         items: {
           type: "object",
           properties: {
-            text: { type: "string", description: "Sitelink headline, <= 25 chars" },
-            desc1: { type: "string", description: "Description 1, <= 35 chars" },
-            desc2: { type: "string", description: "Description 2, <= 35 chars" },
+            text: { type: "string", description: "Sitelink headline, <= 25 chars", maxLength: 25 },
+            desc1: { type: "string", description: "Description 1, <= 35 chars", maxLength: 35 },
+            desc2: { type: "string", description: "Description 2, <= 35 chars", maxLength: 35 },
           },
           required: ["text", "desc1", "desc2"],
         },
@@ -73,7 +74,6 @@ const copyTool = {
 } as const;
 
 function dkiVisible(text: string): { isDki: boolean; visible: string } {
-  // {KeyWord:Default text} variants
   const m = text.match(/^\s*\{(?:KeyWord|Keyword|KEYWORD):([^}]+)\}\s*$/);
   if (m) return { isDki: true, visible: m[1] };
   return { isDki: false, visible: text };
@@ -83,12 +83,30 @@ function rid(p: string) {
   return `${p}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Trim a string to maxLen at a word boundary if possible. */
+function smartClip(s: string, maxLen: number): string {
+  if (!s || s.length <= maxLen) return s;
+  const slice = s.slice(0, maxLen);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > maxLen - 12) return slice.slice(0, lastSpace).replace(/[\s\-,.;:!]+$/, "");
+  return slice.replace(/[\s\-,.;:!]+$/, "");
+}
+
 export async function POST(req: NextRequest) {
   const debug: any = { steps: [] };
   const t0 = Date.now();
   try {
     const body = await req.json();
-    const { brand, angles, leanPercent, campaign, adGroup } = body || {};
+    const {
+      brand,
+      angles,
+      leanPercent,
+      campaign,
+      adGroup,
+      userContext = {},
+      brandGuidelines = "",
+    } = body || {};
+
     if (!campaign || !adGroup) {
       return NextResponse.json({ error: "campaign and adGroup required", debug }, { status: 400 });
     }
@@ -97,6 +115,19 @@ export async function POST(req: NextRequest) {
     const kwList = (adGroup.keywords || []).map((k: any) => k.text).filter(Boolean);
     const dkiDefault = kwList[0] || (brand?.mustIncludeKeywords?.[0] ?? "Get Started");
 
+    const userContextBlock = [
+      userContext.about ? `What the business does: ${userContext.about}` : "",
+      userContext.audience ? `Ideal customer: ${userContext.audience}` : "",
+      userContext.goals ? `Campaign goal: ${userContext.goals}` : "",
+      userContext.notes ? `Other context: ${userContext.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const brandGuidelinesBlock = brandGuidelines.trim()
+      ? `\nBRAND GUIDELINES (must follow tone, do/don'ts):\n${brandGuidelines.trim().slice(0, 4000)}\n`
+      : "";
+
     const userText = `Generate Google Ads RSA copy for the ad group below. Submit via submit_rsa_copy.
 
 BRAND
@@ -104,7 +135,7 @@ BRAND
 - Audience: ${brand?.targetAudience || ""}
 - USPs: ${(brand?.usps || []).join("; ")}
 - Must-include keywords: ${(brand?.mustIncludeKeywords || []).join(", ")}
-
+${userContextBlock ? `\nUSER-PROVIDED CONTEXT\n${userContextBlock}\n` : ""}${brandGuidelinesBlock}
 ANGLE LEAN
 - ${lean}% aspiration. ${lean < 40 ? "Favour pain framing." : lean > 60 ? "Favour aspiration framing." : "Balanced."}
 
@@ -112,6 +143,13 @@ CAMPAIGN: ${campaign.name} (${campaign.structure}, ${campaign.channelType})
 AD GROUP: ${adGroup.name}
 LANDING PATH: ${adGroup.landingPath || "/"}
 KEYWORDS: ${kwList.join(", ")}
+
+CHARACTER LIMITS (HARD - count before submitting):
+- Headlines: <= 30 chars each (DKI default text counts only)
+- Descriptions: <= 90 chars each (this includes spaces; e.g. "Channel-agnostic strategy guided by independent research." = 56 chars OK)
+- Display paths: <= 15 chars each
+- Sitelinks: text <= 25, desc1/desc2 <= 35 each
+If any draft exceeds the limit, shorten it before output. Do NOT pad - shorter is fine.
 
 REQUIREMENTS
 - Exactly 15 headlines. Headline 1 = DKI: "{KeyWord:${dkiDefault}}" with pin = 1. Default text <= 30 chars.
@@ -141,37 +179,61 @@ REQUIREMENTS
     }
 
     const out = toolBlock.input as any;
+    let clippedCount = 0;
 
-    // Post-process headlines
+    // Headlines: post-process + clip
     out.headlines = (out.headlines || []).map((h: any, i: number) => {
       const { isDki, visible } = dkiVisible(h.text);
+      let text = h.text;
+      let len = visible.length;
+      if (!isDki && len > 30) {
+        const clipped = smartClip(text, 30);
+        clippedCount++;
+        text = clipped;
+        len = clipped.length;
+      }
       return {
         ...h,
+        text,
         id: rid("h"),
-        length: visible.length,
-        overLimit: visible.length > 30,
+        length: len,
+        overLimit: len > 30,
         isDki,
         index: i + 1,
       };
     });
-    // Force pin=1 on first headline
     if (out.headlines[0]) out.headlines[0].pin = 1;
 
-    out.descriptions = (out.descriptions || []).map((d: any, i: number) => ({
-      ...d,
-      id: rid("d"),
-      length: (d.text || "").length,
-      overLimit: (d.text || "").length > 90,
-      index: i + 1,
-    }));
+    // Descriptions: hard-clip to 90
+    out.descriptions = (out.descriptions || []).map((d: any, i: number) => {
+      let text = d.text || "";
+      if (text.length > 90) {
+        text = smartClip(text, 90);
+        clippedCount++;
+      }
+      return {
+        ...d,
+        text,
+        id: rid("d"),
+        length: text.length,
+        overLimit: text.length > 90,
+        index: i + 1,
+      };
+    });
 
-    out.paths = (out.paths || []).map((p: string) => p);
+    // Paths: clip to 15
+    out.paths = (out.paths || []).map((p: string) => (p && p.length > 15 ? smartClip(p, 15) : p));
 
+    // Sitelinks: clip
     out.sitelinks = (out.sitelinks || []).map((s: any) => ({
       ...s,
+      text: s.text && s.text.length > 25 ? smartClip(s.text, 25) : s.text,
+      desc1: s.desc1 && s.desc1.length > 35 ? smartClip(s.desc1, 35) : s.desc1,
+      desc2: s.desc2 && s.desc2.length > 35 ? smartClip(s.desc2, 35) : s.desc2,
       id: rid("sl"),
     }));
 
+    debug.clippedCount = clippedCount;
     debug.totalElapsedMs = Date.now() - t0;
     return NextResponse.json({ ...out, debug });
   } catch (err: any) {
