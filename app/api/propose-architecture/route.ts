@@ -33,15 +33,27 @@ const archTool = {
       },
       campaigns: {
         type: "array",
-        description: "2 to 6 campaigns covering the brief and selected channels.",
-        minItems: 2,
-        maxItems: 6,
+        description: "Campaigns covering the brief and selected channels. Number determined by the campaignCount instruction in the prompt.",
+        minItems: 1,
         items: {
           type: "object",
           properties: {
             name: { type: "string", description: "{Theme} x {Sub-theme} | {SUFFIX}" },
             structure: { type: "string", enum: [...STRUCTURE_OPTIONS] },
             channelType: { type: "string", enum: [...CHANNEL_OPTIONS] },
+            funnelStage: {
+              type: "string",
+              enum: ["awareness", "consideration", "conversion", "retention"],
+              description:
+                "Where this campaign sits on the customer journey. awareness = brand-building/audience-first; consideration = problem-aware research; conversion = high-intent ready-to-buy; retention = past customers/warm audiences.",
+            },
+            funnelHint: {
+              type: "string",
+              description:
+                "One short sentence explaining why this campaign serves that stage for THIS brand. Plain English.",
+              minLength: 30,
+              maxLength: 200,
+            },
             budget: { type: "number", description: "Daily budget in AUD." },
             locations: {
               type: "array",
@@ -106,6 +118,8 @@ const archTool = {
             "name",
             "structure",
             "channelType",
+            "funnelStage",
+            "funnelHint",
             "budget",
             "locations",
             "bidStrategy",
@@ -183,6 +197,7 @@ export async function POST(req: NextRequest) {
       userContext = {},
       brandGuidelines = "",
       candidateLandingPages = [],
+      mandatoryLandingPages = [],
       prioritizedAngles = [],
       campaignCount = 0,
     } = body || {};
@@ -200,6 +215,7 @@ export async function POST(req: NextRequest) {
       hasBrandGuidelines: !!brandGuidelines,
       userContextKeys: Object.keys(userContext).filter((k) => userContext[k]),
       candidateLandingPagesCount: candidateLandingPages.length,
+      mandatoryLandingPagesCount: mandatoryLandingPages.length,
       prioritizedAnglesCount: prioritizedAngles.length,
       campaignCount,
     };
@@ -208,7 +224,7 @@ export async function POST(req: NextRequest) {
     const channelList = Array.isArray(channels) && channels.length > 0 ? channels : ["Search"];
     const lean = typeof leanPercent === "number" ? leanPercent : 50;
     const suffix = (nameSuffix || "SA").trim().toUpperCase().slice(0, 8) || "SA";
-    const targetCampaignCount = campaignCount && campaignCount >= 2 && campaignCount <= 6 ? campaignCount : 0;
+    const targetCampaignCount = Number.isInteger(campaignCount) && campaignCount >= 1 ? campaignCount : 0;
 
     const userContextBlock = [
       userContext.about ? `What the business does: ${userContext.about}` : "",
@@ -228,7 +244,13 @@ export async function POST(req: NextRequest) {
       : "";
 
     const candidatePagesBlock = candidateLandingPages.length
-      ? `\n\nCANDIDATE LANDING PAGES (the user has selected these pages from the site - prefer these for landingPath; use the path portion only, leading slash):\n${candidateLandingPages.map((u: string) => {
+      ? `\n\nCANDIDATE LANDING PAGES (the user has marked these as available - prefer these for landingPath; use the path portion only, leading slash):\n${candidateLandingPages.map((u: string) => {
+          try { return new URL(u).pathname; } catch { return u; }
+        }).join("\n")}`
+      : "";
+
+    const mandatoryPagesBlock = mandatoryLandingPages.length
+      ? `\n\nMANDATORY LANDING PAGES (NON-NEGOTIABLE - each of these MUST appear as the landingPath of at least one ad group somewhere in the architecture; if a mandatory page has weak commercial intent for paid search, flag it briefly in the campaign's aiNote rather than excluding it):\n${mandatoryLandingPages.map((u: string) => {
           try { return new URL(u).pathname; } catch { return u; }
         }).join("\n")}`
       : "";
@@ -238,8 +260,8 @@ export async function POST(req: NextRequest) {
       : "";
 
     const campaignCountInstruction = targetCampaignCount
-      ? `Submit EXACTLY ${targetCampaignCount} campaigns.`
-      : `Submit 2 to 4 campaigns covering the brief and selected channels.`;
+      ? `Submit EXACTLY ${targetCampaignCount} campaigns. If the mandatory pages can't fit in that many, pack multiple mandatory pages into shared campaigns as separate ad groups.`
+      : `Submit 2 to 4 campaigns covering the brief and selected channels (more if mandatory pages demand it).`;
 
     const userText = `Propose a Google Ads campaign architecture for the brand below.
 
@@ -259,11 +281,14 @@ ${(angles.pain || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.des
 ASPIRATION:
 ${(angles.aspiration || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.desc}`).join("\n")}
 
-CHANNELS REQUESTED: ${channelList.join(", ")}${candidatePagesBlock}${prioritizedAnglesBlock}
+CHANNELS REQUESTED: ${channelList.join(", ")}${candidatePagesBlock}${mandatoryPagesBlock}${prioritizedAnglesBlock}
 
 REQUIREMENTS
 - ${campaignCountInstruction}
 - Naming: campaign = "{Theme} x {Sub-theme} | ${suffix}", ad group = "{Sub-theme} | {STRUCTURE}".
+- 2 to 4 ad groups per campaign (except SKAG, see below).
+- Provide a top-level strategySummary AND a clientRationale per campaign written for a non-technical client.
+- For EACH campaign, assign a funnelStage (awareness | consideration | conversion | retention) and a funnelHint (1 short sentence explaining why this campaign serves that stage for THIS brand). Spread campaigns sensibly across stages where it makes commercial sense.
 - 2 to 4 ad groups per campaign (except SKAG, see below).
 - Provide a top-level strategySummary AND a clientRationale per campaign written for a non-technical client.
 

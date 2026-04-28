@@ -65,6 +65,8 @@ type Campaign = {
   negatives: string[];
   aiNote: string;
   clientRationale?: string;
+  funnelStage?: "awareness" | "consideration" | "conversion" | "retention";
+  funnelHint?: string;
   adGroups: AdGroup[];
   accent?: string;
 };
@@ -103,6 +105,27 @@ const ARCH_SUBS: { key: ArchSub; label: string; sub: string }[] = [
 const PERSIST_KEY = "braive_ads_state_v2";
 const ACCENTS = ["#FF66C3", "#1A1A1A", "#666666", "#E64FAB"];
 const DAYS_PER_MONTH = 30.4;
+
+const FUNNEL_STAGE_ORDER: Array<"awareness" | "consideration" | "conversion" | "retention"> = [
+  "awareness",
+  "consideration",
+  "conversion",
+  "retention",
+];
+
+const FUNNEL_STAGE_LABELS: Record<string, string> = {
+  awareness: "Awareness",
+  consideration: "Consideration",
+  conversion: "Conversion",
+  retention: "Retention",
+};
+
+const FUNNEL_STAGE_DESCRIPTIONS: Record<string, string> = {
+  awareness: "Build recognition with audiences who don't know the brand yet.",
+  consideration: "Capture demand from people researching the category.",
+  conversion: "Close ready-to-buy traffic with high-intent keywords.",
+  retention: "Re-engage past customers and warm audiences.",
+};
 
 /* ============================================================
    HELPERS
@@ -254,6 +277,7 @@ export default function Page() {
   const [contextOpen, setContextOpen] = useState(false);
   const [discoveredPages, setDiscoveredPages] = useState<DiscoveredPage[]>([]);
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
+  const [pinnedPages, setPinnedPages] = useState<string[]>([]);
   const [pagesOpen, setPagesOpen] = useState(false);
   const [prioritizedAngles, setPrioritizedAngles] = useState<string[]>([]);
   const [campaignCount, setCampaignCount] = useState<number>(0); // 0 = auto
@@ -265,7 +289,10 @@ export default function Page() {
   const [loading, setLoading] = useState<LoadingState>(null);
   const [health, setHealth] = useState<"checking" | "ok" | "down">("checking");
   const [healthInfo, setHealthInfo] = useState<any>(null);
-  const [reviewModal, setReviewModal] = useState<{ open: boolean; token?: string; url?: string }>({ open: false });
+  const [reviewUrl, setReviewUrl] = useState<string | null>(null);
+  const [reviewToken, setReviewToken] = useState<string | null>(null);
+  const [clientEmail, setClientEmail] = useState<{ subject: string; body: string } | null>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [serpVariantIdx, setSerpVariantIdx] = useState(0);
   const [bulkKw, setBulkKw] = useState<{ open: boolean; campaignId?: string; agId?: string; text: string }>({ open: false, text: "" });
@@ -293,6 +320,7 @@ export default function Page() {
         if (typeof s.strategySummary === "string") setStrategySummary(s.strategySummary);
         if (Array.isArray(s.discoveredPages)) setDiscoveredPages(s.discoveredPages);
         if (Array.isArray(s.selectedPages)) setSelectedPages(s.selectedPages);
+        if (Array.isArray(s.pinnedPages)) setPinnedPages(s.pinnedPages);
         if (Array.isArray(s.prioritizedAngles)) setPrioritizedAngles(s.prioritizedAngles);
         if (typeof s.campaignCount === "number") setCampaignCount(s.campaignCount);
       }
@@ -321,12 +349,13 @@ export default function Page() {
         strategySummary,
         discoveredPages,
         selectedPages,
+        pinnedPages,
         prioritizedAngles,
         campaignCount,
       };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
     } catch {}
-  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary, discoveredPages, selectedPages, prioritizedAngles, campaignCount]);
+  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary, discoveredPages, selectedPages, pinnedPages, prioritizedAngles, campaignCount]);
 
   /* ----- Health check on mount ----- */
   useEffect(() => {
@@ -415,6 +444,7 @@ export default function Page() {
           userContext,
           brandGuidelines,
           candidateLandingPages: selectedPages,
+          mandatoryLandingPages: pinnedPages,
           prioritizedAngles,
           campaignCount,
         }),
@@ -564,7 +594,7 @@ export default function Page() {
     }
   }
 
-  function handleGenerateReviewLink() {
+  async function handleGenerateReviewLink() {
     if (!campaigns.length) {
       setError({ message: "Need an architected build before generating a review link" });
       return;
@@ -585,7 +615,66 @@ export default function Page() {
       return;
     }
     const url = `${window.location.origin}/r/${token}`;
-    setReviewModal({ open: true, token, url });
+    setReviewUrl(url);
+    setReviewToken(token);
+
+    // Generate the client email in parallel (don't block the link)
+    setEmailLoading(true);
+    setClientEmail(null);
+    try {
+      const res = await fetch("/api/generate-client-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: brief?.brand,
+          strategySummary,
+          campaigns,
+          reviewUrl: url,
+          brandUrl: briefUrl,
+          userContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError({ message: "Email gen failed: " + (data.error || `HTTP ${res.status}`), debug: data.debug });
+      } else {
+        setClientEmail({ subject: data.subject, body: data.body });
+      }
+    } catch (err: any) {
+      setError({ message: "Email gen exception: " + (err?.message || String(err)), debug: { exception: String(err) } });
+    } finally {
+      setEmailLoading(false);
+    }
+  }
+
+  async function regenerateClientEmail() {
+    if (!reviewUrl) return;
+    setEmailLoading(true);
+    try {
+      const res = await fetch("/api/generate-client-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: brief?.brand,
+          strategySummary,
+          campaigns,
+          reviewUrl,
+          brandUrl: briefUrl,
+          userContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError({ message: "Email regen failed: " + (data.error || `HTTP ${res.status}`), debug: data.debug });
+      } else {
+        setClientEmail({ subject: data.subject, body: data.body });
+        setToast({ type: "success", message: "Email regenerated" });
+      }
+    } catch (err: any) {
+      setError({ message: err?.message || String(err), debug: { exception: String(err) } });
+    } finally {
+      setEmailLoading(false);
+    }
   }
 
   function handleReset() {
@@ -609,6 +698,7 @@ export default function Page() {
     setStrategySummary("");
     setDiscoveredPages([]);
     setSelectedPages([]);
+    setPinnedPages([]);
     setPrioritizedAngles([]);
     setCampaignCount(0);
   }
@@ -1154,7 +1244,7 @@ export default function Page() {
                       <Globe size={13} style={{ color: "var(--accent)" }} />
                       <span>Pages on this site</span>
                       <span className="context-toggle-meta">
-                        {selectedPages.length}/{discoveredPages.length} selected as candidate landing pages
+                        <strong>{pinnedPages.length}</strong> must · <strong>{selectedPages.length - pinnedPages.length}</strong> available · <strong>{discoveredPages.length - selectedPages.length}</strong> ignored
                       </span>
                     </button>
                     {pagesOpen && (
@@ -1162,39 +1252,87 @@ export default function Page() {
                         <div className="pages-panel-actions">
                           <button
                             className="btn sm ghost"
-                            onClick={() => setSelectedPages(discoveredPages.map((p) => p.url))}
+                            onClick={() => {
+                              setSelectedPages(discoveredPages.map((p) => p.url));
+                            }}
                           >
-                            Select all
+                            Make all available
                           </button>
                           <button
                             className="btn sm ghost"
-                            onClick={() => setSelectedPages([])}
+                            onClick={() => {
+                              setSelectedPages([]);
+                              setPinnedPages([]);
+                            }}
                           >
-                            Clear
+                            Ignore all
                           </button>
                           <button
                             className="btn sm ghost"
-                            onClick={() => setSelectedPages(discoveredPages.filter((p) => p.scraped).map((p) => p.url))}
+                            onClick={() => {
+                              setSelectedPages(discoveredPages.filter((p) => p.scraped).map((p) => p.url));
+                              setPinnedPages([]);
+                            }}
                           >
                             Reset to scraped
                           </button>
-                          <span className="context-helper">selected pages get preferred as landing-path candidates by the architect</span>
+                          <span className="context-helper">
+                            <strong>Must</strong> = mandatory landing page · <strong>Available</strong> = AI may use · <strong>Ignore</strong> = AI must not use
+                          </span>
                         </div>
+                        {campaignCount > 0 && pinnedPages.length > campaignCount && (
+                          <div className="pages-conflict-warn">
+                            <Info size={12} /> You've pinned {pinnedPages.length} pages but capped campaigns at {campaignCount}. Pinned pages will share campaigns as separate ad groups.
+                          </div>
+                        )}
                         <div className="pages-list">
                           {discoveredPages.map((p) => {
-                            const checked = selectedPages.includes(p.url);
+                            const isPinned = pinnedPages.includes(p.url);
+                            const isSelected = selectedPages.includes(p.url);
+                            const state: "must" | "available" | "ignore" = isPinned ? "must" : isSelected ? "available" : "ignore";
+                            const setState = (next: "must" | "available" | "ignore") => {
+                              if (next === "must") {
+                                setPinnedPages((prev) => prev.includes(p.url) ? prev : [...prev, p.url]);
+                                setSelectedPages((prev) => prev.includes(p.url) ? prev : [...prev, p.url]);
+                              } else if (next === "available") {
+                                setPinnedPages((prev) => prev.filter((x) => x !== p.url));
+                                setSelectedPages((prev) => prev.includes(p.url) ? prev : [...prev, p.url]);
+                              } else {
+                                setPinnedPages((prev) => prev.filter((x) => x !== p.url));
+                                setSelectedPages((prev) => prev.filter((x) => x !== p.url));
+                              }
+                            };
                             return (
-                              <label key={p.url} className={classNames("page-row", checked && "checked")}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => {
-                                    setSelectedPages((prev) => prev.includes(p.url) ? prev.filter((x) => x !== p.url) : [...prev, p.url]);
-                                  }}
-                                />
+                              <div key={p.url} className={classNames("page-row", state)}>
+                                <div className="page-state-seg">
+                                  <button
+                                    type="button"
+                                    className={classNames("page-state-btn", state === "must" && "active must")}
+                                    onClick={() => setState("must")}
+                                    title="Mandatory: this page MUST be a landing path in at least one ad group"
+                                  >
+                                    Must
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={classNames("page-state-btn", state === "available" && "active available")}
+                                    onClick={() => setState("available")}
+                                    title="Available: AI may use this page as a landing path"
+                                  >
+                                    Available
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={classNames("page-state-btn", state === "ignore" && "active ignore")}
+                                    onClick={() => setState("ignore")}
+                                    title="Ignore: AI must not use this page"
+                                  >
+                                    Ignore
+                                  </button>
+                                </div>
                                 <span className="page-path">{p.path}</span>
                                 {p.scraped && <span className="page-flag" title="content scraped for context">scraped</span>}
-                              </label>
+                              </div>
                             );
                           })}
                         </div>
@@ -1252,24 +1390,27 @@ export default function Page() {
 
                 <div className="brief-section">
                   <div className="label-mono">Number of campaigns</div>
-                  <div className="seg seg-wide">
-                    {[
-                      { v: 0, label: "Auto" },
-                      { v: 2, label: "2" },
-                      { v: 3, label: "3" },
-                      { v: 4, label: "4" },
-                      { v: 5, label: "5" },
-                      { v: 6, label: "6" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.v}
-                        className={classNames("seg-btn", campaignCount === opt.v && "active")}
-                        onClick={() => setCampaignCount(opt.v)}
-                        title={opt.v === 0 ? "Let the AI decide (2-4)" : `Force exactly ${opt.v} campaigns`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                  <div className="campaign-count-picker">
+                    <button
+                      className={classNames("seg-btn", campaignCount === 0 && "active")}
+                      onClick={() => setCampaignCount(0)}
+                      title="Let the AI decide (typically 2-4)"
+                    >
+                      Auto
+                    </button>
+                    <span className="campaign-count-or">or set exactly</span>
+                    <input
+                      type="number"
+                      className="text-input campaign-count-input"
+                      min={1}
+                      placeholder="—"
+                      value={campaignCount > 0 ? campaignCount : ""}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        setCampaignCount(Number.isFinite(n) && n >= 1 ? n : 0);
+                      }}
+                    />
+                    <span className="context-helper">no upper cap, but 8+ tends to fragment budgets</span>
                   </div>
                 </div>
 
@@ -1277,7 +1418,8 @@ export default function Page() {
                   <span className="summary">
                     <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SA"}</strong>
                     {prioritizedAngles.length > 0 && <> · <strong>{prioritizedAngles.length}</strong> angle{prioritizedAngles.length === 1 ? "" : "s"} starred</>}
-                    {selectedPages.length > 0 && <> · <strong>{selectedPages.length}</strong> page{selectedPages.length === 1 ? "" : "s"} selected</>}
+                    {pinnedPages.length > 0 && <> · <strong>{pinnedPages.length}</strong> page{pinnedPages.length === 1 ? "" : "s"} pinned</>}
+                    {selectedPages.length > pinnedPages.length && <> · <strong>{selectedPages.length - pinnedPages.length}</strong> available</>}
                   </span>
                   <button className="btn primary" onClick={handleProposeArchitecture} disabled={!!loading}>
                     <Sparkles size={13} /> Architect <ArrowRight size={13} />
@@ -1419,9 +1561,25 @@ export default function Page() {
                       </div>
                     </div>
                     {c.aiNote && <div className="ai-inline">{c.aiNote}</div>}
+                    {c.adGroups.length > 0 && (
+                      <div className="campaign-adgroups-summary">
+                        <div className="campaign-adgroups-label">Ad groups · landing paths</div>
+                        <ul className="campaign-adgroups-list">
+                          {c.adGroups.map((g) => (
+                            <li key={g.id}>
+                              <span className="campaign-adgroup-name">{g.name}</span>
+                              <span className="campaign-adgroup-path">{g.landingPath}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {c.clientRationale && (
                       <div className="rationale-block">
-                        <div className="rationale-label">For the client</div>
+                        <div className="rationale-label">
+                          For the client
+                          {c.funnelStage && <span className={classNames("funnel-stage-badge", `stage-${c.funnelStage}`)}>{FUNNEL_STAGE_LABELS[c.funnelStage] || c.funnelStage}</span>}
+                        </div>
                         <p className="rationale-text">{c.clientRationale}</p>
                       </div>
                     )}
@@ -1555,6 +1713,52 @@ export default function Page() {
                 <h2>Review</h2>
                 <p>Final architecture overview. Move to Generate when this looks right.</p>
               </div>
+
+              {/* Customer journey diagram */}
+              {campaigns.some((c) => c.funnelStage) && (
+                <div className="journey-section">
+                  <div className="journey-h">
+                    <div className="label-mono">
+                      <Target size={11} style={{ verticalAlign: "middle", color: "var(--accent)" }} />
+                      <span style={{ marginLeft: 6 }}>Customer journey</span>
+                    </div>
+                    <span className="context-helper">how each campaign maps to where the customer is in their decision</span>
+                  </div>
+                  <div className="journey-grid">
+                    {FUNNEL_STAGE_ORDER.map((stage, idx) => {
+                      const stageCampaigns = campaigns.filter((c) => c.funnelStage === stage);
+                      return (
+                        <div key={stage} className={classNames("journey-stage", `stage-${stage}`)}>
+                          <div className="journey-stage-h">
+                            <span className="journey-stage-num">{String(idx + 1).padStart(2, "0")}</span>
+                            <span className="journey-stage-label">{FUNNEL_STAGE_LABELS[stage]}</span>
+                          </div>
+                          <p className="journey-stage-desc">{FUNNEL_STAGE_DESCRIPTIONS[stage]}</p>
+                          <div className="journey-stage-campaigns">
+                            {stageCampaigns.length === 0 ? (
+                              <div className="journey-stage-empty">No campaign</div>
+                            ) : (
+                              stageCampaigns.map((c) => (
+                                <div key={c.id} className="journey-campaign-chip">
+                                  <span className="journey-chip-accent" style={{ background: c.accent }} />
+                                  <div className="journey-chip-body">
+                                    <span className="journey-chip-name">{c.name}</span>
+                                    {c.funnelHint && <span className="journey-chip-hint">{c.funnelHint}</span>}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          {idx < FUNNEL_STAGE_ORDER.length - 1 && (
+                            <ArrowRight size={14} className="journey-arrow" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="arch-canvas">
                 {campaigns.map((c) => (
                   <div key={c.id} className="campaign-col">
@@ -1800,15 +2004,115 @@ export default function Page() {
             <div>
               <p className="stage-eyebrow">Stage 04 / Client review</p>
               <h1 className="stage-title">Send for <em>client review</em></h1>
-              <p className="stage-sub">Generate a white-label review link. The client sees variation cards with SERP previews and can approve or leave notes per variation.</p>
+              <p className="stage-sub">Generate a white-label review link plus a contextual email draft you can send the client.</p>
             </div>
           </div>
-          <div className="brief">
-            <button className="btn primary" onClick={handleGenerateReviewLink} disabled={!campaigns.length}>
-              <Send size={13} /> Generate review link
-            </button>
-            {!campaigns.length && (
-              <p className="text-helper" style={{ marginTop: 12 }}>You need to architect a build first.</p>
+          <div className="review-stage-layout">
+            <div className="review-link-card">
+              <div className="review-link-card-h">
+                <div className="label-mono"><Send size={11} /> Review link</div>
+                {reviewUrl && (
+                  <button className="btn sm ghost" onClick={() => { setReviewUrl(null); setReviewToken(null); setClientEmail(null); }} title="Clear and start fresh">
+                    <RefreshCw size={11} /> New link
+                  </button>
+                )}
+              </div>
+              {!reviewUrl ? (
+                <>
+                  <p className="text-helper" style={{ margin: "8px 0 12px" }}>
+                    Generate a unique link the client can open. They'll see variation cards with SERP previews and can approve or leave notes per variation. We'll also draft a contextual email for you to send them.
+                  </p>
+                  <button className="btn primary" onClick={handleGenerateReviewLink} disabled={!campaigns.length || emailLoading}>
+                    <Send size={13} /> Generate review link + email
+                  </button>
+                  {!campaigns.length && (
+                    <p className="text-helper" style={{ marginTop: 12 }}>You need to architect a build first.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="review-link-display">{reviewUrl}</div>
+                  <div className="review-link-actions">
+                    <button
+                      className="btn primary"
+                      onClick={() => {
+                        navigator.clipboard.writeText(reviewUrl);
+                        setToast({ type: "success", message: "Link copied" });
+                      }}
+                    >
+                      <Check size={12} /> Copy link
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => window.open(reviewUrl, "_blank")}
+                    >
+                      <ExternalLink size={12} /> Open in new tab
+                    </button>
+                  </div>
+                  <p className="text-helper" style={{ marginTop: 10 }}>
+                    Note: review state is per-device. The client should open the link on their own browser.
+                  </p>
+                </>
+              )}
+            </div>
+
+            {(reviewUrl || emailLoading) && (
+              <div className="review-email-card">
+                <div className="review-link-card-h">
+                  <div className="label-mono"><FileText size={11} /> Email draft <span className="count">edit before sending</span></div>
+                  {clientEmail && (
+                    <button className="btn sm ghost" onClick={regenerateClientEmail} disabled={emailLoading}>
+                      <RefreshCw size={11} /> Regenerate
+                    </button>
+                  )}
+                </div>
+                {emailLoading && !clientEmail ? (
+                  <div className="email-loading">
+                    <div className="loading-spinner" /> Drafting email - takes ~10 seconds...
+                  </div>
+                ) : clientEmail ? (
+                  <>
+                    <div className="email-field">
+                      <label>Subject</label>
+                      <input
+                        className="text-input"
+                        value={clientEmail.subject}
+                        onChange={(e) => setClientEmail({ ...clientEmail, subject: e.target.value })}
+                      />
+                    </div>
+                    <div className="email-field">
+                      <label>Body</label>
+                      <textarea
+                        className="text-input"
+                        rows={14}
+                        value={clientEmail.body}
+                        onChange={(e) => setClientEmail({ ...clientEmail, body: e.target.value })}
+                        style={{ fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.55 }}
+                      />
+                    </div>
+                    <div className="review-link-actions">
+                      <button
+                        className="btn primary"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`Subject: ${clientEmail.subject}\n\n${clientEmail.body}`);
+                          setToast({ type: "success", message: "Subject + body copied" });
+                        }}
+                      >
+                        <Check size={12} /> Copy email
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          const mailto = `mailto:?subject=${encodeURIComponent(clientEmail.subject)}&body=${encodeURIComponent(clientEmail.body)}`;
+                          window.location.href = mailto;
+                        }}
+                      >
+                        <ExternalLink size={12} /> Open in mail client
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
             )}
           </div>
         </div>
@@ -1822,7 +2126,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.4 · BRAIVE Ads</span>
+        <span className="status-section">v0.5 · BRAIVE Ads</span>
       </div>
 
       {/* LOADING OVERLAY */}
@@ -1868,39 +2172,6 @@ export default function Page() {
 
       {/* TOAST */}
       {toast && <div className={classNames("toast", toast.type)}>{toast.message}</div>}
-
-      {/* REVIEW LINK MODAL */}
-      {reviewModal.open && reviewModal.url && (
-        <div className="modal-overlay" onClick={() => setReviewModal({ open: false })}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-h">
-              <strong>Review link generated</strong>
-              <button className="btn sm ghost" onClick={() => setReviewModal({ open: false })}>×</button>
-            </div>
-            <p className="modal-sub">
-              Send this link to the client. The session is stored locally on the device that opens it - works best when the client opens it on this same device for the demo.
-            </p>
-            <div className="modal-link">{reviewModal.url}</div>
-            <div className="modal-actions">
-              <button
-                className="btn primary"
-                onClick={() => {
-                  navigator.clipboard.writeText(reviewModal.url || "");
-                  setToast({ type: "success", message: "Link copied" });
-                }}
-              >
-                Copy link
-              </button>
-              <button
-                className="btn"
-                onClick={() => window.open(reviewModal.url, "_blank")}
-              >
-                Open in new tab
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* BULK KW MODAL */}
       {bulkKw.open && (
