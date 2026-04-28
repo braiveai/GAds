@@ -305,3 +305,117 @@ body {
 .palette-row-shortcut { font-family: "Geist Mono", monospace; font-size: 9.5px; color: var(--ink-4); }
 .palette-footer { padding: 6px 14px; border-top: 0.5px solid var(--line); background: var(--bg-2); display: flex; gap: 14px; font-family: "Geist Mono", monospace; font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; }
 .palette-footer-item { display: flex; align-items: center; gap: 4px; }
+
+/* ============= ARCHITECT SUB-STAGES ============= */
+.arch-substages { display: flex; gap: 4px; margin-bottom: 18px; padding: 6px; background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 7px; }
+.arch-substage { flex: 1; padding: 8px 12px; border: none; background: transparent; color: var(--ink-3); font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 5px; display: flex; align-items: center; gap: 8px; transition: all 0.1s; }
+.arch-substage:hover { background: var(--hover); color: var(--ink-2); }
+.arch-substage.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 3px rgba(0,0,0,0.2); }
+.arch-substage.done { color: var(--ink-2); }
+.arch-substage-num { width: 18px; height: 18px; border-radius: 4px; background: var(--surface-2); color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center; font-family: "Geist Mono", monospace; font-size: 10px; font-weight: 600; flex-shrink: 0; transition: all 0.1s; }
+.arch-substage.active .arch-substage-num { background: var(--accent); color: white; box-shadow: 0 0 8px var(--accent-glow); }
+.arch-substage.done .arch-substage-num { background: var(--ink-2); color: var(--bg); }
+.arch-substage-label { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; gap: 1px; }
+.arch-substage-title { font-size: 12px; font-weight: 600; }
+.arch-substage-sub { font-size: 10px; color: var(--ink-4); font-family: "Geist Mono", monospace; letter-spacing: 0.04em; }
+
+/* ============= SUB-STAGE CONTENT ============= */
+.substage-content { max-width: 880px; margin: 0 auto 24px; }
+.substage-content.wide { max-width: 1200px; }
+.substage-intro { margin-bottom: 16px; }
+.substage-intro h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; color: var(--ink); }
+.substage-intro p { font-size: 12px; color: var(--ink-3); margin: 0; }
+
+/* ============= FORM CARDS ============= */
+.form-card { background: var(--surface); border: 0.5px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; transition: all 0.12s; }
+.form-card:hover { border-color: var(--line-2); }
+.form-card-header { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 0.5px solid var(--line); background: linear-gradient(180deg, var(--surface-2), var(--surface)); }
+.form-card-num { width: 22px; height: 22px; border-radius: 4px; background: var(--surface-2); color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center; font-family: "Geist Mono", monospace; font-size: 11px; font-weight: 600; flex-shrink: 0; border: 0.5px solid var(--line); }
+.form-card-title { font-size: 13px; font-weight: 600; flex: 1; color: var(--ink); }
+.form-card-meta { font-family: "Geist Mono", monospace; font-size: 10px; color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; }
+.form-card-actions { display: flex; gap: 4px; }
+.form-card-action-btn { width: 22px; height: 22px; border: 0.5px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink-3); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; padding: 0; }
+.form-card-action-btn:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+.form-card-body { padding: 16px; }
+.form-card.collapsed .form-card-body { display: none; }
+.form-card-collapse-btn { width: 22px; height: 22px; border: 0.5px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink-3); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; padding: 0; transition: transform 0.15s; }
+.form-card-collapse-btn.expanded { transform: rotate(90deg); }
+
+/* ============= FORM FIELDS ============= */
+.form-stack { display: flex; flex-direction: column; gap: 14px; }
+.form-row { display: grid; gap: 12px; }
+.form-row.col-2 { grid-template-columns: 1fr 1fr; }
+.form-row.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-field { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-family: "Geist Mono", monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.form-label .req { color: var(--accent); }
+.form-label .optional { color: var(--ink-4); font-size: 9px; font-style: italic; text-transform: none; letter-spacing: 0.02em; }
+.form-input { width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: inherit; border: 0.5px solid var(--line-2); border-radius: 5px; background: var(--bg-2); color: var(--ink); transition: all 0.1s; }
+.form-input:hover { border-color: var(--line-3); }
+.form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+.form-input::placeholder { color: var(--ink-4); }
+.form-input.with-prefix { padding-left: 26px; }
+.form-input-wrap { position: relative; }
+.form-input-prefix { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-family: "Geist Mono", monospace; font-size: 11px; color: var(--ink-3); pointer-events: none; }
+.form-textarea { width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: inherit; border: 0.5px solid var(--line-2); border-radius: 5px; background: var(--bg-2); color: var(--ink); resize: vertical; min-height: 60px; line-height: 1.5; transition: all 0.1s; }
+.form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+.form-help { font-size: 11px; color: var(--ink-4); margin-top: 2px; line-height: 1.4; }
+.form-help.ai { color: var(--ai); font-family: "Geist Mono", monospace; font-size: 10.5px; letter-spacing: 0.02em; font-style: italic; }
+
+/* ============= SEGMENTED CONTROL ============= */
+.segmented { display: flex; padding: 2px; background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 6px; gap: 2px; }
+.segmented-opt { flex: 1; padding: 6px 10px; border: none; background: transparent; color: var(--ink-3); font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; border-radius: 4px; transition: all 0.1s; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.2; }
+.segmented-opt:hover { background: var(--hover); color: var(--ink-2); }
+.segmented-opt.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 2px rgba(0,0,0,0.2); }
+.segmented-opt-label { font-size: 11.5px; font-weight: 600; }
+.segmented-opt-sub { font-size: 9.5px; font-family: "Geist Mono", monospace; color: var(--ink-4); letter-spacing: 0.04em; }
+.segmented-opt.active .segmented-opt-sub { color: var(--ink-3); }
+
+/* ============= CHIP INPUT ============= */
+.chip-input { padding: 6px 8px; background: var(--bg-2); border: 0.5px solid var(--line-2); border-radius: 5px; min-height: 36px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; transition: all 0.1s; }
+.chip-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+.chip-input-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; background: var(--surface-2); border: 0.5px solid var(--line); border-radius: 3px; font-family: "Geist Mono", monospace; font-size: 10.5px; color: var(--ink); }
+.chip-input-tag .x { color: var(--ink-4); cursor: pointer; font-size: 11px; padding: 0 3px; line-height: 1; }
+.chip-input-tag .x:hover { color: var(--danger); }
+.chip-input-text { flex: 1; min-width: 80px; border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: 12px; padding: 4px; }
+.chip-input-text:focus { outline: none; }
+.chip-input-text::placeholder { color: var(--ink-4); }
+
+/* ============= ADD ROW ============= */
+.add-row-btn { width: 100%; padding: 9px; background: transparent; border: 0.5px dashed var(--line-2); border-radius: 6px; color: var(--ink-3); cursor: pointer; font-family: "Geist Mono", monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; transition: all 0.1s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.add-row-btn:hover { color: var(--accent); border-color: var(--accent); border-style: solid; background: var(--accent-soft); }
+
+/* ============= AD GROUP NESTED FORM ============= */
+.adgroup-form { background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+.adgroup-form-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.adgroup-form-name { flex: 1; padding: 4px 8px; font-size: 12px; font-weight: 600; font-family: inherit; border: 0.5px solid transparent; background: transparent; color: var(--ink); border-radius: 4px; }
+.adgroup-form-name:hover { background: var(--surface); border-color: var(--line); }
+.adgroup-form-name:focus { outline: none; background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.adgroup-form-meta { font-family: "Geist Mono", monospace; font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; background: var(--surface); border: 0.5px solid var(--line); border-radius: 3px; }
+
+/* ============= REVIEW SUB-STAGE ============= */
+.review-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.review-stat { padding: 14px; background: var(--surface); border: 0.5px solid var(--line); border-radius: 7px; }
+.review-stat-label { font-family: "Geist Mono", monospace; font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 6px; font-weight: 500; }
+.review-stat-value { font-size: 22px; font-weight: 600; letter-spacing: -0.025em; margin: 0; line-height: 1; color: var(--ink); }
+.review-stat-sub { font-family: "Geist Mono", monospace; font-size: 10px; color: var(--ink-3); margin: 4px 0 0; letter-spacing: 0.04em; }
+
+/* ============= AI INLINE SUGGESTIONS ============= */
+.ai-suggestion-strip { margin-top: 8px; padding: 8px 10px; background: var(--ai-soft); border: 0.5px solid rgba(0, 229, 153, 0.2); border-radius: 5px; font-size: 11.5px; color: var(--ai); line-height: 1.45; display: flex; align-items: flex-start; gap: 8px; }
+.ai-suggestion-strip-icon { font-family: "Geist Mono", monospace; font-size: 11px; opacity: 0.7; flex-shrink: 0; margin-top: 1px; }
+.ai-suggestion-strip-body { flex: 1; }
+.ai-suggestion-strip-body strong { color: var(--ai); font-weight: 600; }
+.ai-suggestion-strip-actions { display: flex; gap: 4px; margin-top: 4px; }
+.ai-suggestion-strip-action { font-size: 10.5px; padding: 2px 8px; background: rgba(0, 229, 153, 0.12); color: var(--ai); border: 0.5px solid rgba(0, 229, 153, 0.3); border-radius: 3px; cursor: pointer; font-family: inherit; font-weight: 500; }
+.ai-suggestion-strip-action:hover { background: rgba(0, 229, 153, 0.2); }
+.ai-suggestion-strip-action.dismiss { background: transparent; color: var(--ink-3); border-color: transparent; }
+
+/* ============= COMPACT CANVAS (REVIEW) ============= */
+.review-canvas { display: flex; gap: 10px; overflow-x: auto; padding: 4px 4px 12px; }
+.review-canvas-col { flex: 0 0 240px; background: var(--surface); border: 0.5px solid var(--line); border-radius: 6px; padding: 10px; }
+.review-canvas-col-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding-bottom: 7px; border-bottom: 0.5px solid var(--line); }
+.review-canvas-col-name { font-size: 12px; font-weight: 600; flex: 1; color: var(--ink); }
+.review-canvas-col-stats { font-family: "Geist Mono", monospace; font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.04em; margin-bottom: 8px; }
+.review-canvas-ag { padding: 6px 8px; background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 4px; margin-bottom: 4px; }
+.review-canvas-ag-name { font-size: 11px; font-weight: 600; color: var(--ink); margin: 0 0 2px; }
+.review-canvas-ag-meta { font-family: "Geist Mono", monospace; font-size: 9px; color: var(--ink-4); letter-spacing: 0.04em; }
