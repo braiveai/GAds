@@ -297,6 +297,7 @@ export default function Page() {
   const [serpVariantIdx, setSerpVariantIdx] = useState(0);
   const [bulkKw, setBulkKw] = useState<{ open: boolean; campaignId?: string; agId?: string; text: string }>({ open: false, text: "" });
   const [collapsedCampaigns, setCollapsedCampaigns] = useState<Record<string, boolean>>({});
+  const [hasRestored, setHasRestored] = useState(false);
   const restoredRef = useRef(false);
 
   /* ----- Restore from localStorage on mount ----- */
@@ -324,6 +325,10 @@ export default function Page() {
         if (Array.isArray(s.pinnedPages)) setPinnedPages(s.pinnedPages);
         if (Array.isArray(s.prioritizedAngles)) setPrioritizedAngles(s.prioritizedAngles);
         if (typeof s.campaignCount === "number") setCampaignCount(s.campaignCount);
+        // Flag a restore if any meaningful data came back
+        if (s.briefUrl || (Array.isArray(s.campaigns) && s.campaigns.length) || s.brief) {
+          setHasRestored(true);
+        }
       }
     } catch {}
     restoredRef.current = true;
@@ -678,10 +683,18 @@ export default function Page() {
     }
   }
 
-  function handleReset() {
-    if (!confirm("Reset all state? This clears the current build from local storage.")) return;
+  function handleReset(opts?: { silent?: boolean }) {
+    if (!opts?.silent && !confirm("Start fresh? This wipes the current build (URL, scrape, architecture, copy, review sessions). Cannot be undone.")) return;
     try {
-      localStorage.removeItem(PERSIST_KEY);
+      // Nuke all BRAIVE keys: main state + any review sessions
+      const toRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k === PERSIST_KEY || k.startsWith("braive_review_") || k.startsWith("braive_ads_state"))) {
+          toRemove.push(k);
+        }
+      }
+      toRemove.forEach((k) => localStorage.removeItem(k));
     } catch {}
     setBriefUrl("");
     setBrief(null);
@@ -702,6 +715,13 @@ export default function Page() {
     setPinnedPages([]);
     setPrioritizedAngles([]);
     setCampaignCount(0);
+    setReviewUrl(null);
+    setReviewToken(null);
+    setClientEmail(null);
+    setContextOpen(false);
+    setPagesOpen(false);
+    setHasRestored(false);
+    setToast({ type: "success", message: "Fresh build - all state wiped" });
   }
 
   /* ----- Mutators ----- */
@@ -992,7 +1012,7 @@ export default function Page() {
         </div>
 
         <div className="nav-section">
-          <button className="nav-item" onClick={handleReset}>
+          <button className="nav-item" onClick={() => handleReset()}>
             <Home size={14} className="nav-icon" />
             <span>Home / Brands</span>
           </button>
@@ -1074,7 +1094,7 @@ export default function Page() {
               <button className="btn sm" onClick={() => handleExport("csv")}><Download size={11} /> CSV</button>
             </>
           )}
-          <button className="btn sm ghost" onClick={handleReset}><RefreshCw size={11} /> Reset</button>
+          <button className="btn sm" onClick={() => handleReset()} title="Wipe everything and start a brand new build"><RefreshCw size={11} /> Start fresh</button>
         </div>
 
         {/* ----- BRIEF VIEW ----- */}
@@ -1087,6 +1107,26 @@ export default function Page() {
                 <p className="stage-sub">Drop a URL. We'll scrape the homepage and a few inner pages, extract tone, audience, USPs, must-include keywords, and 6 strategic angles.</p>
               </div>
             </div>
+
+            {hasRestored && (
+              <div className="restore-banner">
+                <Info size={13} />
+                <div className="restore-banner-text">
+                  <strong>Continuing from earlier.</strong>
+                  <span>Your previous build was restored from local storage. Want to demo from scratch?</span>
+                </div>
+                <button className="btn primary sm" onClick={() => handleReset()}>
+                  <RefreshCw size={11} /> Start fresh
+                </button>
+                <button
+                  className="btn sm ghost"
+                  onClick={() => setHasRestored(false)}
+                  title="Dismiss this banner without wiping state"
+                >
+                  Keep & dismiss
+                </button>
+              </div>
+            )}
 
             <div className="brief-input-row">
               <input
@@ -2285,7 +2325,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.6 · BRAIVE Ads</span>
+        <span className="status-section">v0.6.2 · BRAIVE Ads</span>
       </div>
 
       {/* LOADING OVERLAY */}
