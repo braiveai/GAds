@@ -758,3 +758,35 @@ body {
   .review-stage-layout { grid-template-columns: 1fr; }
 }
 
+
+/* ============= v0.6 ADDITIONS ============= */
+
+/* Pin button on headlines/descriptions */
+.pin-btn { font-family: var(--font-sans); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 7px; min-width: 30px; background: var(--surface-2); border: 0.5px solid var(--line-2); color: var(--ink-4); border-radius: 3px; cursor: pointer; transition: all 0.08s; flex-shrink: 0; }
+.pin-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.pin-btn.pinned { color: white; border-color: var(--accent); }
+.pin-btn.pinned.p1 { background: var(--accent); }
+.pin-btn.pinned.p2 { background: var(--accent-deep); }
+.pin-btn.pinned.p3 { background: var(--ink); border-color: var(--ink); }
+
+/* Editable sitelinks */
+.sitelink-edit { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--line); }
+.sitelink-edit .asset-num { margin-top: 6px; flex-shrink: 0; }
+.sitelink-fields { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.sitelink-field { display: flex; align-items: center; gap: 8px; }
+.sitelink-text { font-weight: 600; }
+.sitelink-desc { font-size: 12px; color: var(--ink-2); }
+.sitelink-edit .asset-text-input { flex: 1; padding: 5px 9px; }
+
+/* Campaign-grouped Generate sidebar */
+.gen-campaign-groups { display: flex; flex-direction: column; gap: 6px; }
+.gen-campaign-group { display: flex; flex-direction: column; }
+.gen-campaign-h { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; background: var(--surface-2); border: 0.5px solid var(--line); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; color: var(--ink); text-align: left; transition: all 0.08s; }
+.gen-campaign-h:hover { background: var(--surface-3); border-color: var(--line-2); }
+.gen-campaign-chev { display: inline-flex; align-items: center; color: var(--ink-3); width: 12px; flex-shrink: 0; }
+.gen-campaign-accent { width: 3px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.gen-campaign-name { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-campaign-meta { font-family: var(--font-sans); font-size: 9.5px; letter-spacing: 0.04em; color: var(--ink-3); padding: 1px 6px; background: var(--bg-2); border-radius: 3px; border: 0.5px solid var(--line); flex-shrink: 0; font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+.gen-campaign-group .gen-adgroup-list { padding: 4px 0 4px 18px; gap: 3px; }
+.gen-campaign-group .gen-adgroup-pill { font-size: 11px; }
+

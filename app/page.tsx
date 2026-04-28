@@ -296,6 +296,7 @@ export default function Page() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [serpVariantIdx, setSerpVariantIdx] = useState(0);
   const [bulkKw, setBulkKw] = useState<{ open: boolean; campaignId?: string; agId?: string; text: string }>({ open: false, text: "" });
+  const [collapsedCampaigns, setCollapsedCampaigns] = useState<Record<string, boolean>>({});
   const restoredRef = useRef(false);
 
   /* ----- Restore from localStorage on mount ----- */
@@ -845,6 +846,86 @@ export default function Page() {
                 paths[idx] = newText;
                 return { ...g, copy: { ...g.copy, paths } };
               }),
+            }
+          : c
+      )
+    );
+  }
+
+  /** Cycle a headline pin: null → 1 → 2 → 3 → null */
+  function cycleHeadlinePin(campaignId: string, agId: string, idx: number) {
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              adGroups: c.adGroups.map((g) =>
+                g.id === agId && g.copy
+                  ? {
+                      ...g,
+                      copy: {
+                        ...g.copy,
+                        headlines: g.copy.headlines.map((hh, ii) => {
+                          if (ii !== idx) return hh;
+                          const next = hh.pin == null ? 1 : hh.pin === 1 ? 2 : hh.pin === 2 ? 3 : null;
+                          return { ...hh, pin: next };
+                        }),
+                      },
+                    }
+                  : g
+              ),
+            }
+          : c
+      )
+    );
+  }
+
+  /** Cycle a description pin: null → 1 → 2 → null */
+  function cycleDescriptionPin(campaignId: string, agId: string, idx: number) {
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              adGroups: c.adGroups.map((g) =>
+                g.id === agId && g.copy
+                  ? {
+                      ...g,
+                      copy: {
+                        ...g.copy,
+                        descriptions: g.copy.descriptions.map((dd, ii) => {
+                          if (ii !== idx) return dd;
+                          const next = dd.pin == null ? 1 : dd.pin === 1 ? 2 : null;
+                          return { ...dd, pin: next };
+                        }),
+                      },
+                    }
+                  : g
+              ),
+            }
+          : c
+      )
+    );
+  }
+
+  /** Edit a sitelink field (text/desc1/desc2) */
+  function setSitelinkField(campaignId: string, agId: string, idx: number, field: "text" | "desc1" | "desc2", newVal: string) {
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              adGroups: c.adGroups.map((g) =>
+                g.id === agId && g.copy
+                  ? {
+                      ...g,
+                      copy: {
+                        ...g.copy,
+                        sitelinks: g.copy.sitelinks.map((s, ii) => (ii === idx ? { ...s, [field]: newVal } : s)),
+                      },
+                    }
+                  : g
+              ),
             }
           : c
       )
@@ -1921,9 +2002,16 @@ export default function Page() {
                               <span className={classNames("asset-len", (h.length ?? 0) > 25 && "warn", h.overLimit && "over")}>
                                 {dkiVisible(h.text).length}/30
                               </span>
-                              <span className={classNames("asset-angle", h.angle)}>
-                                {h.angle}{h.pin != null ? ` p${h.pin}` : ""}
+                              <span className={classNames("asset-angle", h.angle)} title={`Angle: ${h.angle}`}>
+                                {h.angle}
                               </span>
+                              <button
+                                className={classNames("pin-btn", h.pin != null && "pinned", h.pin != null && `p${h.pin}`)}
+                                onClick={() => cycleHeadlinePin(active.campaign.id, active.ag.id, i)}
+                                title={h.pin == null ? "Click to pin (cycles P1 → P2 → P3 → none)" : `Pinned to position ${h.pin} - click to cycle`}
+                              >
+                                {h.pin == null ? "—" : `P${h.pin}`}
+                              </button>
                             </div>
                           ))}
 
@@ -1939,7 +2027,14 @@ export default function Page() {
                               <span className={classNames("asset-len", (d.length ?? 0) > 80 && "warn", d.overLimit && "over")}>
                                 {(d.text || "").length}/90
                               </span>
-                              <span className={classNames("asset-angle", d.angle)}>{d.angle}</span>
+                              <span className={classNames("asset-angle", d.angle)} title={`Angle: ${d.angle}`}>{d.angle}</span>
+                              <button
+                                className={classNames("pin-btn", d.pin != null && "pinned", d.pin != null && `p${d.pin}`)}
+                                onClick={() => cycleDescriptionPin(active.campaign.id, active.ag.id, i)}
+                                title={d.pin == null ? "Click to pin (cycles P1 → P2 → none). Descriptions only support P1 and P2." : `Pinned to position ${d.pin} - click to cycle`}
+                              >
+                                {d.pin == null ? "—" : `P${d.pin}`}
+                              </button>
                             </div>
                           ))}
 
@@ -1960,13 +2055,45 @@ export default function Page() {
                           </div>
 
                           <div className="gen-section-title">Sitelinks (6)</div>
-                          {active.ag.copy.sitelinks.map((s, i) => (
-                            <div key={i} className="sitelink-row">
-                              <strong>{s.text}</strong>
-                              <span className="sl-d">{s.desc1}</span>
-                              <span className="sl-d">{s.desc2}</span>
-                            </div>
-                          ))}
+                          {active.ag.copy.sitelinks.map((s, i) => {
+                            const tl = (s.text || "").length;
+                            const d1l = (s.desc1 || "").length;
+                            const d2l = (s.desc2 || "").length;
+                            return (
+                              <div key={i} className="sitelink-row sitelink-edit">
+                                <span className="asset-num">SL{i + 1}</span>
+                                <div className="sitelink-fields">
+                                  <div className="sitelink-field">
+                                    <input
+                                      className={classNames("asset-text-input sitelink-text", tl > 25 && "over")}
+                                      placeholder="Sitelink text"
+                                      value={s.text}
+                                      onChange={(e) => setSitelinkField(active.campaign.id, active.ag.id, i, "text", e.target.value)}
+                                    />
+                                    <span className={classNames("asset-len", tl > 22 && "warn", tl > 25 && "over")}>{tl}/25</span>
+                                  </div>
+                                  <div className="sitelink-field">
+                                    <input
+                                      className={classNames("asset-text-input sitelink-desc", d1l > 35 && "over")}
+                                      placeholder="Description 1"
+                                      value={s.desc1}
+                                      onChange={(e) => setSitelinkField(active.campaign.id, active.ag.id, i, "desc1", e.target.value)}
+                                    />
+                                    <span className={classNames("asset-len", d1l > 32 && "warn", d1l > 35 && "over")}>{d1l}/35</span>
+                                  </div>
+                                  <div className="sitelink-field">
+                                    <input
+                                      className={classNames("asset-text-input sitelink-desc", d2l > 35 && "over")}
+                                      placeholder="Description 2"
+                                      value={s.desc2}
+                                      onChange={(e) => setSitelinkField(active.campaign.id, active.ag.id, i, "desc2", e.target.value)}
+                                    />
+                                    <span className={classNames("asset-len", d2l > 32 && "warn", d2l > 35 && "over")}>{d2l}/35</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </>
                       ) : (
                         <div className="brief-empty-state">
@@ -1980,17 +2107,44 @@ export default function Page() {
 
                 <aside className="gen-side">
                   <div className="label-mono">Ad groups <span className="count">{adGroupsWithCopy}/{adGroupsTotal}</span></div>
-                  <div className="gen-adgroup-list">
-                    {allAdGroups.map(({ ag: g, key }) => (
-                      <button
-                        key={key}
-                        className={classNames("gen-adgroup-pill", activeAdGroupKey === key && "active")}
-                        onClick={() => setActiveAdGroupKey(key)}
-                      >
-                        <span>{g.name}</span>
-                        <span className="meta">{g.copy ? "✓" : `${g.keywords.length}kw`}</span>
-                      </button>
-                    ))}
+                  <div className="gen-campaign-groups">
+                    {campaigns.map((c) => {
+                      const isCollapsed = !!collapsedCampaigns[c.id];
+                      const campaignGroups = c.adGroups;
+                      const doneCount = campaignGroups.filter((g) => g.copy).length;
+                      return (
+                        <div key={c.id} className="gen-campaign-group">
+                          <button
+                            className="gen-campaign-h"
+                            onClick={() => setCollapsedCampaigns((prev) => ({ ...prev, [c.id]: !prev[c.id] }))}
+                          >
+                            <span className="gen-campaign-chev">
+                              {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                            </span>
+                            <span className="gen-campaign-accent" style={{ background: c.accent }} />
+                            <span className="gen-campaign-name">{c.name}</span>
+                            <span className="gen-campaign-meta">{doneCount}/{campaignGroups.length}</span>
+                          </button>
+                          {!isCollapsed && (
+                            <div className="gen-adgroup-list">
+                              {campaignGroups.map((g) => {
+                                const key = `${c.id}__${g.id}`;
+                                return (
+                                  <button
+                                    key={key}
+                                    className={classNames("gen-adgroup-pill", activeAdGroupKey === key && "active")}
+                                    onClick={() => setActiveAdGroupKey(key)}
+                                  >
+                                    <span>{g.name}</span>
+                                    <span className="meta">{g.copy ? <Check size={10} /> : `${g.keywords.length}kw`}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </aside>
               </div>
@@ -2126,7 +2280,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.5 · BRAIVE Ads</span>
+        <span className="status-section">v0.6 · BRAIVE Ads</span>
       </div>
 
       {/* LOADING OVERLAY */}
