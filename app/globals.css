@@ -1,31 +1,31 @@
 :root {
-  --bg: #0A0A0F;
-  --bg-2: #0E0E14;
-  --surface: #14141A;
-  --surface-2: #1A1A22;
-  --surface-3: #22222C;
-  --hover: rgba(255, 255, 255, 0.04);
-  --line: rgba(255, 255, 255, 0.06);
-  --line-2: rgba(255, 255, 255, 0.12);
-  --line-3: rgba(255, 255, 255, 0.18);
-  --ink: #FAFAFA;
-  --ink-2: #B4B4BF;
+  --bg: #FAFAFA;
+  --bg-2: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-2: #F4F4F7;
+  --surface-3: #ECECF1;
+  --hover: rgba(10, 10, 20, 0.04);
+  --line: rgba(10, 10, 20, 0.06);
+  --line-2: rgba(10, 10, 20, 0.10);
+  --line-3: rgba(10, 10, 20, 0.16);
+  --ink: #0A0A14;
+  --ink-2: #44444F;
   --ink-3: #7A7A85;
-  --ink-4: #4D4D57;
-  --accent: #5C6FFF;
-  --accent-soft: rgba(92, 111, 255, 0.12);
-  --accent-glow: rgba(92, 111, 255, 0.4);
-  --ai: #00E599;
-  --ai-soft: rgba(0, 229, 153, 0.1);
-  --ai-glow: rgba(0, 229, 153, 0.35);
-  --pain: #FF6B3D;
-  --pain-soft: rgba(255, 107, 61, 0.12);
-  --aspire: #4FC4D8;
-  --aspire-soft: rgba(79, 196, 216, 0.12);
-  --warning: #F5B847;
-  --warning-soft: rgba(245, 184, 71, 0.12);
-  --danger: #FF5555;
-  --danger-soft: rgba(255, 85, 85, 0.12);
+  --ink-4: #B4B4BF;
+  --accent: #2541E8;
+  --accent-soft: rgba(37, 65, 232, 0.08);
+  --accent-glow: rgba(37, 65, 232, 0.25);
+  --ai: #0F9D6F;
+  --ai-soft: rgba(15, 157, 111, 0.08);
+  --ai-glow: rgba(15, 157, 111, 0.20);
+  --pain: #C24A1F;
+  --pain-soft: rgba(194, 74, 31, 0.08);
+  --aspire: #1F6E8C;
+  --aspire-soft: rgba(31, 110, 140, 0.08);
+  --warning: #8B5A0A;
+  --warning-soft: rgba(139, 90, 10, 0.10);
+  --danger: #B91F1F;
+  --danger-soft: rgba(185, 31, 31, 0.08);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -33,8 +33,8 @@ body {
   font-family: "Geist", ui-sans-serif, sans-serif;
   color: var(--ink); background: var(--bg);
   background-image:
-    radial-gradient(ellipse 1000px 500px at 80% -10%, rgba(92, 111, 255, 0.08), transparent 60%),
-    radial-gradient(ellipse 800px 400px at 5% 100%, rgba(0, 229, 153, 0.04), transparent 60%);
+    radial-gradient(ellipse 1000px 500px at 80% -10%, rgba(37, 65, 232, 0.04), transparent 60%),
+    radial-gradient(ellipse 800px 400px at 5% 100%, rgba(15, 157, 111, 0.025), transparent 60%);
   background-attachment: fixed;
   font-size: 13px; line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -76,13 +76,13 @@ body {
 .sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 0.5px solid var(--line); }
 .user-card { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
 .user-card:hover { background: var(--hover); }
-.user-avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4D4D57, #2A2A33); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 600; flex-shrink: 0; border: 0.5px solid var(--line-2); }
+.user-avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--ink), var(--ink-2)); color: var(--bg); display: inline-flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 600; flex-shrink: 0; border: 0.5px solid var(--line-2); }
 .user-name { font-size: 11.5px; font-weight: 500; margin: 0; color: var(--ink); }
 .user-org { font-size: 10px; color: var(--ink-3); margin: 0; font-family: "Geist Mono", monospace; letter-spacing: 0.04em; }
 
 /* MAIN */
 .main { grid-area: main; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 0.5px solid var(--line); background: rgba(10, 10, 15, 0.7); backdrop-filter: saturate(160%) blur(16px); -webkit-backdrop-filter: saturate(160%) blur(16px); position: sticky; top: 0; z-index: 30; min-height: 41px; }
+.topbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 0.5px solid var(--line); background: rgba(255, 255, 255, 0.75); backdrop-filter: saturate(160%) blur(16px); -webkit-backdrop-filter: saturate(160%) blur(16px); position: sticky; top: 0; z-index: 30; min-height: 41px; }
 .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; flex: 1; }
 .breadcrumb-segment { color: var(--ink-3); cursor: pointer; padding: 2px 5px; border-radius: 4px; }
 .breadcrumb-segment:hover { background: var(--hover); color: var(--ink); }
@@ -200,7 +200,7 @@ body {
 .struct-picker-btn:hover { background: var(--surface-2); border-color: var(--line-3); }
 .struct-picker-btn .lbl { color: var(--ink-3); font-size: 9.5px; }
 .struct-picker-btn .chev { font-size: 8px; color: var(--ink-3); }
-.struct-picker-menu { position: absolute; top: calc(100% + 4px); right: 0; background: var(--surface-2); border: 0.5px solid var(--line-2); border-radius: 6px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); padding: 3px; z-index: 60; min-width: 280px; backdrop-filter: blur(20px); }
+.struct-picker-menu { position: absolute; top: calc(100% + 4px); right: 0; background: var(--surface); border: 0.5px solid var(--line-2); border-radius: 6px; box-shadow: 0 8px 24px rgba(10, 10, 20, 0.10); padding: 3px; z-index: 60; min-width: 280px; }
 .struct-option { padding: 7px 10px; border-radius: 4px; cursor: pointer; }
 .struct-option:hover { background: var(--hover); }
 .struct-option.active { background: var(--accent-soft); }
@@ -284,9 +284,9 @@ body {
 .status-shortcut .kbd { font-size: 9px; padding: 1px 4px; }
 
 /* COMMAND PALETTE */
-.palette-overlay { position: fixed; inset: 0; background: rgba(5, 5, 8, 0.6); backdrop-filter: blur(4px); display: none; z-index: 100; align-items: flex-start; justify-content: center; padding-top: 12vh; }
+.palette-overlay { position: fixed; inset: 0; background: rgba(10, 10, 20, 0.35); backdrop-filter: blur(4px); display: none; z-index: 100; align-items: flex-start; justify-content: center; padding-top: 12vh; }
 .palette-overlay.open { display: flex; }
-.palette { width: 580px; max-width: 92vw; background: var(--surface); border: 0.5px solid var(--line-2); border-radius: 10px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 255, 255, 0.04); overflow: hidden; }
+.palette { width: 580px; max-width: 92vw; background: var(--surface); border: 0.5px solid var(--line-2); border-radius: 10px; box-shadow: 0 24px 64px rgba(10, 10, 20, 0.18), 0 0 0 0.5px var(--line); overflow: hidden; }
 .palette-input-row { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 0.5px solid var(--line); }
 .palette-prompt { font-family: "Geist Mono", monospace; font-size: 11px; color: var(--accent); letter-spacing: 0.06em; }
 .palette-input { flex: 1; border: none; background: transparent; font-family: inherit; font-size: 14px; color: var(--ink); padding: 0; }
@@ -310,7 +310,7 @@ body {
 .arch-substages { display: flex; gap: 4px; margin-bottom: 18px; padding: 6px; background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 7px; }
 .arch-substage { flex: 1; padding: 8px 12px; border: none; background: transparent; color: var(--ink-3); font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 5px; display: flex; align-items: center; gap: 8px; transition: all 0.1s; }
 .arch-substage:hover { background: var(--hover); color: var(--ink-2); }
-.arch-substage.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 3px rgba(0,0,0,0.2); }
+.arch-substage.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 3px rgba(10, 10, 20, 0.06); }
 .arch-substage.done { color: var(--ink-2); }
 .arch-substage-num { width: 18px; height: 18px; border-radius: 4px; background: var(--surface-2); color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center; font-family: "Geist Mono", monospace; font-size: 10px; font-weight: 600; flex-shrink: 0; transition: all 0.1s; }
 .arch-substage.active .arch-substage-num { background: var(--accent); color: white; box-shadow: 0 0 8px var(--accent-glow); }
@@ -366,7 +366,7 @@ body {
 .segmented { display: flex; padding: 2px; background: var(--bg-2); border: 0.5px solid var(--line); border-radius: 6px; gap: 2px; }
 .segmented-opt { flex: 1; padding: 6px 10px; border: none; background: transparent; color: var(--ink-3); font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; border-radius: 4px; transition: all 0.1s; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.2; }
 .segmented-opt:hover { background: var(--hover); color: var(--ink-2); }
-.segmented-opt.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 2px rgba(0,0,0,0.2); }
+.segmented-opt.active { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 0.5px var(--line-2), 0 1px 2px rgba(10, 10, 20, 0.06); }
 .segmented-opt-label { font-size: 11.5px; font-weight: 600; }
 .segmented-opt-sub { font-size: 9.5px; font-family: "Geist Mono", monospace; color: var(--ink-4); letter-spacing: 0.04em; }
 .segmented-opt.active .segmented-opt-sub { color: var(--ink-3); }
