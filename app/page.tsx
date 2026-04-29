@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Home, Sparkles, Layers, FileText, Send, Plus, X, ChevronRight, ChevronDown, ChevronUp,
   Search, Upload, Star, StarOff, Wand2, Eye, Settings, RefreshCw, Trash2, Hash, Globe, Target,
-  ArrowRight, Check, Info, Download, ExternalLink, Filter, Pin,
+  ArrowRight, Check, Info, Download, ExternalLink, Filter, Pin, FolderOpen, Cloud, CloudOff,
 } from "lucide-react";
+import Link from "next/link";
 
 /* ============================================================
    TYPES
@@ -298,46 +299,103 @@ export default function Page() {
   const [bulkKw, setBulkKw] = useState<{ open: boolean; campaignId?: string; agId?: string; text: string }>({ open: false, text: "" });
   const [collapsedCampaigns, setCollapsedCampaigns] = useState<Record<string, boolean>>({});
   const [hasRestored, setHasRestored] = useState(false);
+  const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const restoredRef = useRef(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  /* ----- Restore from localStorage on mount ----- */
+  /* ----- Restore from Supabase (if ?build=<id>) or localStorage ----- */
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(PERSIST_KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (s.briefUrl) setBriefUrl(s.briefUrl);
-        if (s.brief) setBrief(s.brief);
-        if (typeof s.leanValue === "number") setLeanValue(s.leanValue);
-        if (Array.isArray(s.channels)) setChannels(s.channels);
-        if (Array.isArray(s.campaigns)) setCampaigns(s.campaigns);
-        if (s.stage) setStage(s.stage);
-        if (s.archSub) setArchSub(s.archSub);
-        if (s.activeAdGroupKey) setActiveAdGroupKey(s.activeAdGroupKey);
-        if (s.userContext) setUserContext(s.userContext);
-        if (typeof s.brandGuidelines === "string") setBrandGuidelines(s.brandGuidelines);
-        if (typeof s.nameSuffix === "string") setNameSuffix(s.nameSuffix);
-        if (Array.isArray(s.accountNegatives)) setAccountNegatives(s.accountNegatives);
-        if (typeof s.strategySummary === "string") setStrategySummary(s.strategySummary);
-        if (Array.isArray(s.discoveredPages)) setDiscoveredPages(s.discoveredPages);
-        if (Array.isArray(s.selectedPages)) setSelectedPages(s.selectedPages);
-        if (Array.isArray(s.pinnedPages)) setPinnedPages(s.pinnedPages);
-        if (Array.isArray(s.prioritizedAngles)) setPrioritizedAngles(s.prioritizedAngles);
-        if (typeof s.campaignCount === "number") setCampaignCount(s.campaignCount);
-        // Flag a restore if any meaningful data came back
-        if (s.briefUrl || (Array.isArray(s.campaigns) && s.campaigns.length) || s.brief) {
-          setHasRestored(true);
+
+    async function hydrate() {
+      const params = new URLSearchParams(window.location.search);
+      const buildId = params.get("build");
+
+      if (buildId) {
+        // Load from Supabase
+        try {
+          const res = await fetch(`/api/builds/${buildId}`);
+          const data = await res.json();
+          if (res.ok && data.build) {
+            const b = data.build;
+            if (b.brand_url) setBriefUrl(b.brand_url);
+            if (b.brief) setBrief(b.brief);
+            if (typeof b.lean_value === "number") setLeanValue(b.lean_value);
+            if (Array.isArray(b.channels)) setChannels(b.channels);
+            if (Array.isArray(b.campaigns)) setCampaigns(b.campaigns);
+            if (b.user_context) setUserContext(b.user_context);
+            if (typeof b.brand_guidelines === "string") setBrandGuidelines(b.brand_guidelines);
+            if (typeof b.name_suffix === "string") setNameSuffix(b.name_suffix);
+            if (Array.isArray(b.account_negatives)) setAccountNegatives(b.account_negatives);
+            if (typeof b.strategy_summary === "string") setStrategySummary(b.strategy_summary);
+            if (Array.isArray(b.discovered_pages)) setDiscoveredPages(b.discovered_pages);
+            if (Array.isArray(b.selected_pages)) setSelectedPages(b.selected_pages);
+            if (Array.isArray(b.pinned_pages)) setPinnedPages(b.pinned_pages);
+            if (Array.isArray(b.prioritized_angles)) setPrioritizedAngles(b.prioritized_angles);
+            if (typeof b.campaign_count === "number") setCampaignCount(b.campaign_count);
+            // Pick a sensible stage based on what's loaded
+            if (Array.isArray(b.campaigns) && b.campaigns.length) {
+              setStage("architect");
+              const firstC = b.campaigns[0];
+              const firstG = firstC?.adGroups?.[0];
+              if (firstC && firstG) setActiveAdGroupKey(`${firstC.id}__${firstG.id}`);
+            } else if (b.brief) {
+              setStage("brief");
+            }
+            setCurrentBuildId(buildId);
+            setSaveStatus("saved");
+          } else {
+            setError({ message: `Build not found (${buildId})`, debug: data });
+          }
+        } catch (err: any) {
+          setError({ message: err?.message || String(err) });
         }
+        restoredRef.current = true;
+        return;
       }
-    } catch {}
-    restoredRef.current = true;
+
+      // Fallback: localStorage hydration (legacy / offline mode)
+      try {
+        const raw = localStorage.getItem(PERSIST_KEY);
+        if (raw) {
+          const s = JSON.parse(raw);
+          if (s.briefUrl) setBriefUrl(s.briefUrl);
+          if (s.brief) setBrief(s.brief);
+          if (typeof s.leanValue === "number") setLeanValue(s.leanValue);
+          if (Array.isArray(s.channels)) setChannels(s.channels);
+          if (Array.isArray(s.campaigns)) setCampaigns(s.campaigns);
+          if (s.stage) setStage(s.stage);
+          if (s.archSub) setArchSub(s.archSub);
+          if (s.activeAdGroupKey) setActiveAdGroupKey(s.activeAdGroupKey);
+          if (s.userContext) setUserContext(s.userContext);
+          if (typeof s.brandGuidelines === "string") setBrandGuidelines(s.brandGuidelines);
+          if (typeof s.nameSuffix === "string") setNameSuffix(s.nameSuffix);
+          if (Array.isArray(s.accountNegatives)) setAccountNegatives(s.accountNegatives);
+          if (typeof s.strategySummary === "string") setStrategySummary(s.strategySummary);
+          if (Array.isArray(s.discoveredPages)) setDiscoveredPages(s.discoveredPages);
+          if (Array.isArray(s.selectedPages)) setSelectedPages(s.selectedPages);
+          if (Array.isArray(s.pinnedPages)) setPinnedPages(s.pinnedPages);
+          if (Array.isArray(s.prioritizedAngles)) setPrioritizedAngles(s.prioritizedAngles);
+          if (typeof s.campaignCount === "number") setCampaignCount(s.campaignCount);
+          if (typeof s.currentBuildId === "string") setCurrentBuildId(s.currentBuildId);
+          if (s.briefUrl || (Array.isArray(s.campaigns) && s.campaigns.length) || s.brief) {
+            setHasRestored(true);
+          }
+        }
+      } catch {}
+      restoredRef.current = true;
+    }
+
+    hydrate();
   }, []);
 
-  /* ----- Persist on change ----- */
+  /* ----- Persist on change: localStorage immediately, Supabase debounced ----- */
   useEffect(() => {
     if (!restoredRef.current) return;
     if (typeof window === "undefined") return;
+
+    // localStorage - immediate
     try {
       const payload = {
         briefUrl,
@@ -358,10 +416,64 @@ export default function Page() {
         pinnedPages,
         prioritizedAngles,
         campaignCount,
+        currentBuildId,
       };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
     } catch {}
-  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary, discoveredPages, selectedPages, pinnedPages, prioritizedAngles, campaignCount]);
+
+    // Supabase - debounced 1.5s. Skip if no meaningful data yet (no URL and no brief).
+    const hasMeaningfulData = !!(briefUrl || brief || campaigns.length);
+    if (!hasMeaningfulData) return;
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setSaveStatus("saving");
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const body: any = {
+          brand_url: briefUrl || null,
+          brand_name: brief?.brand?.targetAudience ? null : null, // we'll derive a friendlier name from URL host below
+          brief,
+          user_context: userContext,
+          brand_guidelines: brandGuidelines,
+          name_suffix: nameSuffix,
+          account_negatives: accountNegatives,
+          channels,
+          lean_value: leanValue,
+          campaign_count: campaignCount,
+          prioritized_angles: prioritizedAngles,
+          discovered_pages: discoveredPages,
+          selected_pages: selectedPages,
+          pinned_pages: pinnedPages,
+          strategy_summary: strategySummary,
+          campaigns,
+        };
+        // Friendly brand_name = host
+        try {
+          if (briefUrl) {
+            const u = new URL(briefUrl.startsWith("http") ? briefUrl : `https://${briefUrl}`);
+            body.brand_name = u.host.replace(/^www\./, "");
+          }
+        } catch {}
+        if (currentBuildId) body.id = currentBuildId;
+        const res = await fetch("/api/builds", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (res.ok && data.build) {
+          if (!currentBuildId) setCurrentBuildId(data.build.id);
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("error");
+          console.warn("[builds save]", data?.error);
+        }
+      } catch (err) {
+        setSaveStatus("error");
+        console.warn("[builds save]", err);
+      }
+    }, 1500);
+  }, [briefUrl, brief, leanValue, channels, campaigns, stage, archSub, activeAdGroupKey, userContext, brandGuidelines, nameSuffix, accountNegatives, strategySummary, discoveredPages, selectedPages, pinnedPages, prioritizedAngles, campaignCount, currentBuildId]);
 
   /* ----- Health check on mount ----- */
   useEffect(() => {
@@ -572,7 +684,7 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaigns,
-          buildName: "BRAIVE Ads Build",
+          buildName: "Architect Build",
           baseUrl: briefUrl,
         }),
       });
@@ -607,7 +719,7 @@ export default function Page() {
     }
     const token = rid("rv").replace(/^rv_/, "");
     const session = {
-      buildName: "BRAIVE Ads Build",
+      buildName: "Architect Build",
       brandName: undefined,
       baseUrl: briefUrl,
       campaigns,
@@ -623,6 +735,21 @@ export default function Page() {
     const url = `${window.location.origin}/r/${token}`;
     setReviewUrl(url);
     setReviewToken(token);
+
+    // Persist review to Supabase (best-effort - localStorage is the canonical store for /r/[token] today)
+    if (currentBuildId) {
+      fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          build_id: currentBuildId,
+          token,
+          campaigns_snapshot: campaigns,
+          strategy_summary_snapshot: strategySummary,
+          brand_url_snapshot: briefUrl,
+        }),
+      }).catch(() => {});
+    }
 
     // Generate the client email in parallel (don't block the link)
     setEmailLoading(true);
@@ -721,6 +848,10 @@ export default function Page() {
     setContextOpen(false);
     setPagesOpen(false);
     setHasRestored(false);
+    setCurrentBuildId(null);
+    setSaveStatus("idle");
+    // Clear ?build= from URL
+    try { window.history.replaceState({}, "", window.location.pathname); } catch {}
     setToast({ type: "success", message: "Fresh build - all state wiped" });
   }
 
@@ -984,7 +1115,7 @@ export default function Page() {
 
   const stageLabels: Record<Stage, string> = {
     brief: "Brief",
-    architect: "Architect",
+    architect: "Build",
     generate: "Generate",
     review: "Client review",
   };
@@ -1004,17 +1135,17 @@ export default function Page() {
       {/* ============ SIDEBAR ============ */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="brand-mark" />
-          <div className="brand-text">
-            <span className="brand-name">BRAIVE</span>
-            <span className="brand-product">Ads</span>
-          </div>
+          <img src="/architect-logo.jpg" alt="Architect, a BRAIVE product" className="brand-logo" />
         </div>
 
         <div className="nav-section">
+          <Link href="/builds" className="nav-item">
+            <FolderOpen size={14} className="nav-icon" />
+            <span>All builds</span>
+          </Link>
           <button className="nav-item" onClick={() => handleReset()}>
             <Home size={14} className="nav-icon" />
-            <span>Home / Brands</span>
+            <span>Start fresh</span>
           </button>
         </div>
 
@@ -1077,10 +1208,17 @@ export default function Page() {
         {/* TOPBAR */}
         <div className="topbar">
           <div className="breadcrumb">
-            <span className="breadcrumb-segment">Builds</span>
+            <Link href="/builds" className="breadcrumb-segment breadcrumb-link">Builds</Link>
             <span className="breadcrumb-sep">›</span>
             <span className="breadcrumb-segment active">{briefUrl ? safeHost(briefUrl) : "New build"}</span>
           </div>
+          <span
+            className={classNames("save-indicator", `save-${saveStatus}`)}
+            title={saveStatus === "saved" ? "All changes saved to cloud" : saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed - working offline" : "Cloud sync"}
+          >
+            {saveStatus === "saving" ? <Cloud size={11} /> : saveStatus === "error" ? <CloudOff size={11} /> : saveStatus === "saved" ? <Check size={11} /> : <Cloud size={11} />}
+            {saveStatus === "saving" ? "Saving" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Offline" : ""}
+          </span>
           <span
             className={classNames("health-badge", health)}
             title={health === "ok" ? `API ${healthInfo?.elapsedMs}ms` : health === "down" ? `API down: ${healthInfo?.error || ""}` : "Checking..."}
@@ -1546,7 +1684,7 @@ export default function Page() {
                     {selectedPages.length > pinnedPages.length && <> · <strong>{selectedPages.length - pinnedPages.length}</strong> available</>}
                   </span>
                   <button className="btn primary" onClick={handleProposeArchitecture} disabled={!!loading}>
-                    <Sparkles size={13} /> Architect <ArrowRight size={13} />
+                    <Sparkles size={13} /> Build <ArrowRight size={13} />
                   </button>
                 </div>
               </>
@@ -1558,7 +1696,7 @@ export default function Page() {
         <div className={classNames("view", stage === "architect" && "active")}>
           <div className="stage-header">
             <div>
-              <p className="stage-eyebrow">Stage 02 / Architect</p>
+              <p className="stage-eyebrow">Stage 02 / Build</p>
               <h1 className="stage-title">Build the <em>architecture</em></h1>
               <p className="stage-sub">Step through campaigns, keywords, targeting, then review.</p>
             </div>
@@ -2325,7 +2463,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.6.2 · BRAIVE Ads</span>
+        <span className="status-section">v0.7 · Architect</span>
       </div>
 
       {/* LOADING OVERLAY */}

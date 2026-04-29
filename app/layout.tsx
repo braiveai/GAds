@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BRAIVE Ads",
-  description: "Multi-channel ad campaign creation and client approval portal.",
+  title: "Architect — by BRAIVE",
+  description: "Multi-channel ad campaign architecture with strategic reasoning. A BRAIVE product.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
