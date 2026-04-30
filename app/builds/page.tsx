@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw, FileText, Clock, Check, MessageSquare, ExternalLink, Trash2, Eye, Sparkles } from "lucide-react";
+import { Plus, RefreshCw, Layers, Clock, Check, MessageSquare, ExternalLink, Trash2, Eye, Sparkles, ArrowRight, Hash, Send } from "lucide-react";
 
 type BuildRow = {
   id: string;
@@ -12,6 +12,10 @@ type BuildRow = {
   created_at: string;
   updated_at: string;
   campaign_count: number;
+  ad_group_count: number;
+  keyword_count: number;
+  ad_groups_with_copy: number;
+  daily_budget: number;
   review_count: number;
   last_client_view: string | null;
   approval_count: number;
@@ -26,6 +30,8 @@ const STATUS_LABELS: Record<string, string> = {
   archived: "Archived",
 };
 
+const DAYS_PER_MONTH = 30.4;
+
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const m = Math.floor(ms / 60000);
@@ -36,6 +42,10 @@ function formatRelativeTime(iso: string): string {
   if (h < 24) return `${h}h ago`;
   if (d < 7) return `${d}d ago`;
   return new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
+function fmtMoney(n: number): string {
+  return `$${(Number(n) || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
 }
 
 function safeHost(url: string | null): string {
@@ -85,6 +95,12 @@ export default function BuildsDashboard() {
 
   const filtered = filter === "all" ? builds : builds.filter((b) => b.status === filter);
 
+  // Aggregate stats for the top dashboard meta-tile
+  const totalCampaigns = builds.reduce((s, b) => s + (b.campaign_count || 0), 0);
+  const totalKeywords = builds.reduce((s, b) => s + (b.keyword_count || 0), 0);
+  const totalMonthlyBudget = builds.reduce((s, b) => s + ((b.daily_budget || 0) * DAYS_PER_MONTH), 0);
+  const totalApprovals = builds.reduce((s, b) => s + (b.approval_count || 0), 0);
+
   const counts = {
     all: builds.length,
     draft: builds.filter((b) => b.status === "draft").length,
@@ -114,6 +130,32 @@ export default function BuildsDashboard() {
           <h1>Builds</h1>
           <p>Every campaign architecture you've built. Click into one to keep working, or send for client review.</p>
         </div>
+
+        {/* Aggregate meta-tile: total work across all builds */}
+        {builds.length > 0 && (
+          <div className="dashboard-meta">
+            <div className="dashboard-meta-stat">
+              <span className="dashboard-meta-value">{builds.length}</span>
+              <span className="dashboard-meta-label">Builds</span>
+            </div>
+            <div className="dashboard-meta-stat">
+              <span className="dashboard-meta-value">{totalCampaigns}</span>
+              <span className="dashboard-meta-label">Campaigns built</span>
+            </div>
+            <div className="dashboard-meta-stat">
+              <span className="dashboard-meta-value">{totalKeywords.toLocaleString()}</span>
+              <span className="dashboard-meta-label">Keywords</span>
+            </div>
+            <div className="dashboard-meta-stat">
+              <span className="dashboard-meta-value dashboard-meta-accent">{fmtMoney(totalMonthlyBudget)}</span>
+              <span className="dashboard-meta-label">Monthly budget under management</span>
+            </div>
+            <div className="dashboard-meta-stat">
+              <span className="dashboard-meta-value">{totalApprovals}</span>
+              <span className="dashboard-meta-label">Client approvals</span>
+            </div>
+          </div>
+        )}
 
         <div className="dashboard-filters">
           {([
@@ -158,52 +200,116 @@ export default function BuildsDashboard() {
 
         {filtered.length > 0 && (
           <div className="dashboard-list">
-            {filtered.map((b) => (
-              <div key={b.id} className="build-card">
-                <div className="build-card-main">
-                  <div className="build-card-h">
-                    <Link href={`/?build=${b.id}`} className="build-card-name">
-                      {b.brand_name || safeHost(b.brand_url) || "Untitled build"}
-                    </Link>
-                    <span className={`build-status status-${b.status}`}>{STATUS_LABELS[b.status]}</span>
+            {filtered.map((b) => {
+              const monthlyBudget = (b.daily_budget || 0) * DAYS_PER_MONTH;
+              const copyProgress = b.ad_group_count > 0 ? (b.ad_groups_with_copy / b.ad_group_count) * 100 : 0;
+              const totalReviewableVariations = b.ad_group_count * 3; // 3 angle variations per ad group
+              const approvalProgress = totalReviewableVariations > 0 ? Math.min(100, (b.approval_count / totalReviewableVariations) * 100) : 0;
+              const showApprovalBar = b.status === "in_review" || b.status === "approved" || b.review_count > 0;
+
+              return (
+                <Link key={b.id} href={`/?build=${b.id}`} className="build-card-v2">
+                  <div className="build-card-v2-h">
+                    <div className="build-card-v2-title">
+                      <span className="build-card-v2-name">{b.brand_name || safeHost(b.brand_url) || "Untitled build"}</span>
+                      <span className={`build-status status-${b.status}`}>{STATUS_LABELS[b.status]}</span>
+                    </div>
+                    <div className="build-card-v2-meta">
+                      {b.brand_url && (
+                        <span className="build-card-v2-url">
+                          <ExternalLink size={10} /> {safeHost(b.brand_url)}
+                        </span>
+                      )}
+                      <span className="build-card-v2-time">
+                        <Clock size={10} /> Updated {formatRelativeTime(b.updated_at)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="build-card-url">
-                    {b.brand_url ? (
-                      <>
-                        <ExternalLink size={10} />
-                        {safeHost(b.brand_url)}
-                      </>
-                    ) : (
-                      <span style={{ color: "var(--ink-4)", fontStyle: "italic" }}>no URL yet</span>
-                    )}
+
+                  <div className="build-card-v2-stats">
+                    <div className="bc-stat">
+                      <span className="bc-stat-value">{b.campaign_count}</span>
+                      <span className="bc-stat-label">Campaigns</span>
+                    </div>
+                    <div className="bc-stat">
+                      <span className="bc-stat-value">{b.ad_group_count}</span>
+                      <span className="bc-stat-label">Ad groups</span>
+                    </div>
+                    <div className="bc-stat">
+                      <span className="bc-stat-value">{b.keyword_count.toLocaleString()}</span>
+                      <span className="bc-stat-label">Keywords</span>
+                    </div>
+                    <div className="bc-stat">
+                      <span className="bc-stat-value bc-stat-accent">{fmtMoney(monthlyBudget)}</span>
+                      <span className="bc-stat-label">Monthly</span>
+                    </div>
                   </div>
-                  <div className="build-card-stats">
-                    <span><FileText size={11} /> {b.campaign_count} campaign{b.campaign_count === 1 ? "" : "s"}</span>
-                    <span><Clock size={11} /> Updated {formatRelativeTime(b.updated_at)}</span>
-                    {b.review_count > 0 && (
-                      <>
-                        <span><Eye size={11} /> {b.review_count} review link{b.review_count === 1 ? "" : "s"}</span>
-                        {b.last_client_view && (
-                          <span><Clock size={11} /> Last viewed {formatRelativeTime(b.last_client_view)}</span>
-                        )}
-                      </>
-                    )}
-                    {b.approval_count > 0 && (
-                      <span className="build-stat-positive"><Check size={11} /> {b.approval_count} approved</span>
-                    )}
-                    {b.note_count > 0 && (
-                      <span className="build-stat-warn"><MessageSquare size={11} /> {b.note_count} note{b.note_count === 1 ? "" : "s"}</span>
-                    )}
+
+                  {/* Copy generation progress (always shown if any ad groups exist) */}
+                  {b.ad_group_count > 0 && (
+                    <div className="bc-progress">
+                      <div className="bc-progress-h">
+                        <span className="bc-progress-label">
+                          <Sparkles size={10} /> Copy
+                        </span>
+                        <span className="bc-progress-meta">
+                          <strong>{b.ad_groups_with_copy}</strong> / {b.ad_group_count} ad groups
+                          {b.ad_groups_with_copy === b.ad_group_count && b.ad_group_count > 0 && <span className="bc-progress-badge">complete</span>}
+                        </span>
+                      </div>
+                      <div className="bc-progress-bar">
+                        <div className="bc-progress-fill bc-progress-copy" style={{ width: `${copyProgress}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Approval progress (only when review-related activity exists) */}
+                  {showApprovalBar && totalReviewableVariations > 0 && (
+                    <div className="bc-progress">
+                      <div className="bc-progress-h">
+                        <span className="bc-progress-label">
+                          <Check size={10} /> Client approvals
+                        </span>
+                        <span className="bc-progress-meta">
+                          <strong>{b.approval_count}</strong> / {totalReviewableVariations} variations
+                          {b.note_count > 0 && (
+                            <span className="bc-progress-notes"><MessageSquare size={9} /> {b.note_count} note{b.note_count === 1 ? "" : "s"}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="bc-progress-bar">
+                        <div className="bc-progress-fill bc-progress-approval" style={{ width: `${approvalProgress}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="build-card-v2-foot">
+                    <div className="bc-foot-l">
+                      {b.review_count > 0 ? (
+                        <span className="bc-foot-meta">
+                          <Eye size={10} /> {b.review_count} review link{b.review_count === 1 ? "" : "s"}
+                          {b.last_client_view && <> · last viewed {formatRelativeTime(b.last_client_view)}</>}
+                        </span>
+                      ) : (
+                        <span className="bc-foot-meta">
+                          <Send size={10} /> Not yet sent for review
+                        </span>
+                      )}
+                    </div>
+                    <div className="bc-foot-r">
+                      <button
+                        className="bc-archive-btn"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); archiveBuild(b.id, b.brand_name); }}
+                        title="Archive"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                      <span className="bc-open">Open <ArrowRight size={11} /></span>
+                    </div>
                   </div>
-                </div>
-                <div className="build-card-actions">
-                  <Link href={`/?build=${b.id}`} className="btn sm">Open</Link>
-                  <button className="btn sm ghost" onClick={() => archiveBuild(b.id, b.brand_name)} title="Archive">
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              </div>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         )}
       </main>

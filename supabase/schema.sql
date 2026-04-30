@@ -139,3 +139,52 @@ select
     where r.build_id = b.id and a.status = 'note'
   ) as note_count
 from public.builds b;
+
+-- ============================================
+-- Migration v0.7.2 - extend view with size + budget fields
+-- (run this if you applied v1 already)
+-- ============================================
+create or replace view public.builds_with_review_summary as
+select
+  b.id,
+  b.agency_user_id,
+  b.brand_name,
+  b.brand_url,
+  b.status,
+  b.created_at,
+  b.updated_at,
+  b.archived_at,
+  jsonb_array_length(b.campaigns) as campaign_count,
+  coalesce((
+    select sum(jsonb_array_length(coalesce(c->'adGroups', '[]'::jsonb)))
+    from jsonb_array_elements(b.campaigns) c
+  ), 0) as ad_group_count,
+  coalesce((
+    select sum(jsonb_array_length(coalesce(g->'keywords', '[]'::jsonb)))
+    from jsonb_array_elements(b.campaigns) c,
+         jsonb_array_elements(coalesce(c->'adGroups', '[]'::jsonb)) g
+  ), 0) as keyword_count,
+  coalesce((
+    select count(*)::int
+    from jsonb_array_elements(b.campaigns) c,
+         jsonb_array_elements(coalesce(c->'adGroups', '[]'::jsonb)) g
+    where g ? 'copy' and g->'copy' is not null and g->'copy' != 'null'::jsonb
+  ), 0) as ad_groups_with_copy,
+  coalesce((
+    select sum((c->>'budget')::numeric)
+    from jsonb_array_elements(b.campaigns) c
+    where c->>'budget' ~ '^[0-9.]+$'
+  ), 0) as daily_budget,
+  (select count(*) from public.reviews r where r.build_id = b.id) as review_count,
+  (select max(r.last_viewed_at) from public.reviews r where r.build_id = b.id) as last_client_view,
+  (
+    select count(*) from public.approvals a
+    join public.reviews r on a.review_id = r.id
+    where r.build_id = b.id and a.status = 'approved'
+  ) as approval_count,
+  (
+    select count(*) from public.approvals a
+    join public.reviews r on a.review_id = r.id
+    where r.build_id = b.id and a.status = 'note' and a.note_text is not null and length(a.note_text) > 0
+  ) as note_count
+from public.builds b;
