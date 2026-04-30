@@ -55,8 +55,8 @@ body {
 
 /* SIDEBAR */
 .sidebar { grid-area: sidebar; background: var(--bg); border-right: 0.5px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; overflow-y: auto; }
-.sidebar-brand { display: flex; align-items: center; justify-content: center; padding: 8px 4px 14px; margin-bottom: 8px; border-bottom: 0.5px solid var(--line); }
-.brand-logo { width: 100%; max-width: 160px; height: auto; display: block; mix-blend-mode: multiply; }
+.sidebar-brand { display: flex; align-items: center; justify-content: center; padding: 12px 6px 16px; margin-bottom: 8px; border-bottom: 0.5px solid var(--line); }
+.brand-logo { width: 100%; max-width: 180px; height: auto; display: block; border-radius: 8px; }
 
 .nav-section { padding: 4px 0 10px; }
 .nav-label { font-family: var(--font-sans); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); padding: 0 6px; margin-bottom: 4px; font-weight: 500; }
@@ -815,7 +815,7 @@ body {
 .dashboard { min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; }
 .dashboard-h { background: var(--surface); border-bottom: 0.5px solid var(--line); padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dashboard-h-l { display: flex; align-items: center; gap: 12px; }
-.dashboard-logo { height: 44px; width: auto; mix-blend-mode: multiply; }
+.dashboard-logo { height: 56px; width: auto; border-radius: 6px; }
 .dashboard-h-actions { display: flex; gap: 10px; align-items: center; }
 .dashboard-main { max-width: 1100px; width: 100%; margin: 0 auto; padding: 28px 32px 80px; }
 .dashboard-intro h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }

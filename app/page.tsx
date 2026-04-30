@@ -2491,7 +2491,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.8.1 · Architect</span>
+        <span className="status-section">v0.8.2 · Architect</span>
       </div>
 
       {/* LOADING OVERLAY */}
