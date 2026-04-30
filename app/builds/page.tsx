@@ -135,7 +135,7 @@ export default function BuildsDashboard() {
           <button className="btn sm ghost" onClick={refresh} title="Refresh">
             <RefreshCw size={12} /> Refresh
           </button>
-          <Link href="/" className="btn primary">
+          <Link href="/?new=1" className="btn primary">
             <Plus size={13} /> New build
           </Link>
         </div>
@@ -217,7 +217,7 @@ export default function BuildsDashboard() {
                 <X size={13} /> Clear search
               </button>
             ) : filter === "active" ? (
-              <Link href="/" className="btn primary">
+              <Link href="/?new=1" className="btn primary">
                 <Sparkles size={13} /> Start a build
               </Link>
             ) : null}

@@ -310,6 +310,15 @@ export default function Page() {
     async function hydrate() {
       const params = new URLSearchParams(window.location.search);
       const buildId = params.get("build");
+      const isNew = params.get("new") === "1";
+
+      // Explicit "new build" - skip restore, wipe state cache, clean URL
+      if (isNew) {
+        try { localStorage.removeItem(PERSIST_KEY); } catch {}
+        try { window.history.replaceState({}, "", window.location.pathname); } catch {}
+        restoredRef.current = true;
+        return;
+      }
 
       if (buildId) {
         // Load from Supabase
@@ -2491,7 +2500,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.8.3 · Architect</span>
+        <span className="status-section">v0.8.4 · Architect</span>
       </div>
 
       {/* LOADING OVERLAY */}
