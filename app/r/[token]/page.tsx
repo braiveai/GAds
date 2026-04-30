@@ -373,7 +373,7 @@ export default function ClientReviewPage({ params }: { params: { token: string }
         .hdr { background: white; border-bottom: 0.5px solid rgba(0,0,0,0.08); }
         .hdr-inner { max-width: 1080px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
         .hdr-name { display: flex; align-items: center; gap: 12px; }
-        .hdr-logo { height: 48px; width: auto; border-radius: 6px; }
+        .hdr-logo { height: 48px; width: auto; mix-blend-mode: multiply; }
         .hdr-build { font-size: 11px; color: #666; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
         .hdr-sub { font-size: 15px; font-weight: 700; color: #0A0A0A; }
         .content { max-width: 1080px; margin: 0 auto; padding: 28px 24px; }
