@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw, Layers, Clock, Check, MessageSquare, ExternalLink, Trash2, Eye, Sparkles, ArrowRight, Hash, Send } from "lucide-react";
+import { Plus, RefreshCw, Layers, Clock, Check, MessageSquare, ExternalLink, Trash2, Eye, Sparkles, ArrowRight, Hash, Send, Search, X } from "lucide-react";
 
 type BuildRow = {
   id: string;
@@ -62,6 +62,7 @@ export default function BuildsDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "draft" | "in_review" | "approved" | "live">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   async function refresh() {
     setLoading(true);
@@ -93,13 +94,16 @@ export default function BuildsDashboard() {
     }
   }
 
-  const filtered = filter === "all" ? builds : builds.filter((b) => b.status === filter);
-
-  // Aggregate stats for the top dashboard meta-tile (defensively coerced)
-  const totalCampaigns = builds.reduce((s, b) => s + (Number(b.campaign_count) || 0), 0);
-  const totalKeywords = builds.reduce((s, b) => s + (Number(b.keyword_count) || 0), 0);
-  const totalMonthlyBudget = builds.reduce((s, b) => s + ((Number(b.daily_budget) || 0) * DAYS_PER_MONTH), 0);
-  const totalApprovals = builds.reduce((s, b) => s + (Number(b.approval_count) || 0), 0);
+  // Filter: status + search query (matches brand_name and brand_url)
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = builds.filter((b) => {
+    if (filter !== "all" && b.status !== filter) return false;
+    if (q) {
+      const haystack = `${b.brand_name || ""} ${b.brand_url || ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 
   const counts = {
     all: builds.length,
@@ -131,49 +135,44 @@ export default function BuildsDashboard() {
           <p>Every campaign architecture you've built. Click into one to keep working, or send for client review.</p>
         </div>
 
-        {/* Aggregate meta-tile: total work across all builds */}
-        {builds.length > 0 && (
-          <div className="dashboard-meta">
-            <div className="dashboard-meta-stat">
-              <span className="dashboard-meta-value">{builds.length}</span>
-              <span className="dashboard-meta-label">Builds</span>
-            </div>
-            <div className="dashboard-meta-stat">
-              <span className="dashboard-meta-value">{totalCampaigns}</span>
-              <span className="dashboard-meta-label">Campaigns built</span>
-            </div>
-            <div className="dashboard-meta-stat">
-              <span className="dashboard-meta-value">{totalKeywords.toLocaleString()}</span>
-              <span className="dashboard-meta-label">Keywords</span>
-            </div>
-            <div className="dashboard-meta-stat">
-              <span className="dashboard-meta-value dashboard-meta-accent">{fmtMoney(totalMonthlyBudget)}</span>
-              <span className="dashboard-meta-label">Monthly budget under management</span>
-            </div>
-            <div className="dashboard-meta-stat">
-              <span className="dashboard-meta-value">{totalApprovals}</span>
-              <span className="dashboard-meta-label">Client approvals</span>
-            </div>
+        <div className="dashboard-controls">
+          <div className="dashboard-search">
+            <Search size={13} />
+            <input
+              type="text"
+              placeholder="Search by brand or URL..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="dashboard-search-input"
+            />
+            {searchQuery && (
+              <button
+                className="dashboard-search-clear"
+                onClick={() => setSearchQuery("")}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
-        )}
-
-        <div className="dashboard-filters">
-          {([
-            { k: "all", label: "All" },
-            { k: "draft", label: "Draft" },
-            { k: "in_review", label: "In review" },
-            { k: "approved", label: "Approved" },
-            { k: "live", label: "Live" },
-          ] as const).map((f) => (
-            <button
-              key={f.k}
-              className={"dashboard-filter" + (filter === f.k ? " active" : "")}
-              onClick={() => setFilter(f.k)}
-            >
-              {f.label}
-              <span className="dashboard-filter-count">{counts[f.k as keyof typeof counts]}</span>
-            </button>
-          ))}
+          <div className="dashboard-filters">
+            {([
+              { k: "all", label: "All" },
+              { k: "draft", label: "Draft" },
+              { k: "in_review", label: "In review" },
+              { k: "approved", label: "Approved" },
+              { k: "live", label: "Live" },
+            ] as const).map((f) => (
+              <button
+                key={f.k}
+                className={"dashboard-filter" + (filter === f.k ? " active" : "")}
+                onClick={() => setFilter(f.k)}
+              >
+                {f.label}
+                <span className="dashboard-filter-count">{counts[f.k as keyof typeof counts]}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (
@@ -190,11 +189,29 @@ export default function BuildsDashboard() {
 
         {!loading && filtered.length === 0 && !error && (
           <div className="dashboard-empty">
-            <strong>{filter === "all" ? "No builds yet" : `No ${STATUS_LABELS[filter].toLowerCase()} builds`}</strong>
-            <p>{filter === "all" ? "Start your first campaign architecture - it'll save here automatically." : "Switch filters or start a new build."}</p>
-            <Link href="/" className="btn primary">
-              <Sparkles size={13} /> Start a build
-            </Link>
+            <strong>
+              {q
+                ? `No builds match "${searchQuery}"`
+                : filter === "all"
+                ? "No builds yet"
+                : `No ${STATUS_LABELS[filter].toLowerCase()} builds`}
+            </strong>
+            <p>
+              {q
+                ? "Try a different search or clear it to see everything."
+                : filter === "all"
+                ? "Start your first campaign architecture - it'll save here automatically."
+                : "Switch filters or start a new build."}
+            </p>
+            {q ? (
+              <button className="btn primary" onClick={() => setSearchQuery("")}>
+                <X size={13} /> Clear search
+              </button>
+            ) : (
+              <Link href="/" className="btn primary">
+                <Sparkles size={13} /> Start a build
+              </Link>
+            )}
           </div>
         )}
 
