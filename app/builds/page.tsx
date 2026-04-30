@@ -8,7 +8,7 @@ type BuildRow = {
   id: string;
   brand_name: string | null;
   brand_url: string | null;
-  status: "draft" | "in_review" | "approved" | "live" | "archived";
+  status: "active" | "archived";
   created_at: string;
   updated_at: string;
   campaign_count: number | null;
@@ -23,10 +23,7 @@ type BuildRow = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  in_review: "In review",
-  approved: "Approved",
-  live: "Live",
+  active: "Active",
   archived: "Archived",
 };
 
@@ -61,7 +58,7 @@ export default function BuildsDashboard() {
   const [builds, setBuilds] = useState<BuildRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "draft" | "in_review" | "approved" | "live">("all");
+  const [filter, setFilter] = useState<"active" | "archived">("active");
   const [searchQuery, setSearchQuery] = useState("");
 
   async function refresh() {
@@ -84,20 +81,38 @@ export default function BuildsDashboard() {
   }, []);
 
   async function archiveBuild(id: string, brandName: string | null) {
-    if (!confirm(`Archive "${brandName || 'this build'}"? You can recover from the archived view later.`)) return;
+    const build = builds.find((b) => b.id === id);
+    const isArchived = build?.status === "archived";
+    const verb = isArchived ? "Restore" : "Archive";
+    const action = isArchived ? "restore" : "archive";
+    if (!confirm(`${verb} "${brandName || 'this build'}"?`)) return;
     try {
-      const res = await fetch(`/api/builds/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (isArchived) {
+        // Restore via POST update
+        const res = await fetch(`/api/builds`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, status: "active" }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } else {
+        // Archive via DELETE
+        const res = await fetch(`/api/builds/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
       await refresh();
     } catch (err: any) {
-      alert("Archive failed: " + (err?.message || String(err)));
+      alert(`${verb} failed: ` + (err?.message || String(err)));
     }
   }
 
   // Filter: status + search query (matches brand_name and brand_url)
   const q = searchQuery.trim().toLowerCase();
   const filtered = builds.filter((b) => {
-    if (filter !== "all" && b.status !== filter) return false;
+    // We want active to be everything-not-archived; archived is its own bucket
+    const isArchived = b.status === "archived";
+    if (filter === "active" && isArchived) return false;
+    if (filter === "archived" && !isArchived) return false;
     if (q) {
       const haystack = `${b.brand_name || ""} ${b.brand_url || ""}`.toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -106,11 +121,8 @@ export default function BuildsDashboard() {
   });
 
   const counts = {
-    all: builds.length,
-    draft: builds.filter((b) => b.status === "draft").length,
-    in_review: builds.filter((b) => b.status === "in_review").length,
-    approved: builds.filter((b) => b.status === "approved").length,
-    live: builds.filter((b) => b.status === "live").length,
+    active: builds.filter((b) => b.status !== "archived").length,
+    archived: builds.filter((b) => b.status === "archived").length,
   };
 
   return (
@@ -132,7 +144,7 @@ export default function BuildsDashboard() {
       <main className="dashboard-main">
         <div className="dashboard-intro">
           <h1>Builds</h1>
-          <p>Every campaign architecture you've built. Click into one to keep working, or send for client review.</p>
+          <p>Every campaign architecture you've built. Click into one to keep working.</p>
         </div>
 
         <div className="dashboard-controls">
@@ -157,11 +169,8 @@ export default function BuildsDashboard() {
           </div>
           <div className="dashboard-filters">
             {([
-              { k: "all", label: "All" },
-              { k: "draft", label: "Draft" },
-              { k: "in_review", label: "In review" },
-              { k: "approved", label: "Approved" },
-              { k: "live", label: "Live" },
+              { k: "active", label: "Active" },
+              { k: "archived", label: "Archived" },
             ] as const).map((f) => (
               <button
                 key={f.k}
@@ -192,26 +201,26 @@ export default function BuildsDashboard() {
             <strong>
               {q
                 ? `No builds match "${searchQuery}"`
-                : filter === "all"
-                ? "No builds yet"
-                : `No ${STATUS_LABELS[filter].toLowerCase()} builds`}
+                : filter === "archived"
+                ? "Nothing archived"
+                : "No builds yet"}
             </strong>
             <p>
               {q
-                ? "Try a different search or clear it to see everything."
-                : filter === "all"
-                ? "Start your first campaign architecture - it'll save here automatically."
-                : "Switch filters or start a new build."}
+                ? "Try a different search or clear it."
+                : filter === "archived"
+                ? "Builds you archive will appear here. You can restore them later."
+                : "Start your first campaign architecture - it'll save here automatically."}
             </p>
             {q ? (
               <button className="btn primary" onClick={() => setSearchQuery("")}>
                 <X size={13} /> Clear search
               </button>
-            ) : (
+            ) : filter === "active" ? (
               <Link href="/" className="btn primary">
                 <Sparkles size={13} /> Start a build
               </Link>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -224,22 +233,17 @@ export default function BuildsDashboard() {
               const keywordCount = Number(b.keyword_count) || 0;
               const adGroupsWithCopy = Number(b.ad_groups_with_copy) || 0;
               const dailyBudget = Number(b.daily_budget) || 0;
-              const approvalCount = Number(b.approval_count) || 0;
-              const noteCount = Number(b.note_count) || 0;
               const reviewCount = Number(b.review_count) || 0;
 
               const monthlyBudget = dailyBudget * DAYS_PER_MONTH;
               const copyProgress = adGroupCount > 0 ? (adGroupsWithCopy / adGroupCount) * 100 : 0;
-              const totalReviewableVariations = adGroupCount * 3;
-              const approvalProgress = totalReviewableVariations > 0 ? Math.min(100, (approvalCount / totalReviewableVariations) * 100) : 0;
-              const showApprovalBar = b.status === "in_review" || b.status === "approved" || reviewCount > 0;
+              const isArchived = b.status === "archived";
 
               return (
                 <Link key={b.id} href={`/?build=${b.id}`} className="build-card-v2">
                   <div className="build-card-v2-h">
                     <div className="build-card-v2-title">
                       <span className="build-card-v2-name">{b.brand_name || safeHost(b.brand_url) || "Untitled build"}</span>
-                      <span className={`build-status status-${b.status}`}>{STATUS_LABELS[b.status]}</span>
                     </div>
                     <div className="build-card-v2-meta">
                       {b.brand_url && (
@@ -290,36 +294,16 @@ export default function BuildsDashboard() {
                     </div>
                   )}
 
-                  {/* Approval progress (only when review-related activity exists) */}
-                  {showApprovalBar && totalReviewableVariations > 0 && (
-                    <div className="bc-progress">
-                      <div className="bc-progress-h">
-                        <span className="bc-progress-label">
-                          <Check size={10} /> Client approvals
-                        </span>
-                        <span className="bc-progress-meta">
-                          <strong>{approvalCount}</strong> / {totalReviewableVariations} variations
-                          {noteCount > 0 && (
-                            <span className="bc-progress-notes"><MessageSquare size={9} /> {noteCount} note{noteCount === 1 ? "" : "s"}</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="bc-progress-bar">
-                        <div className="bc-progress-fill bc-progress-approval" style={{ width: `${approvalProgress}%` }} />
-                      </div>
-                    </div>
-                  )}
-
                   <div className="build-card-v2-foot">
                     <div className="bc-foot-l">
                       {reviewCount > 0 ? (
                         <span className="bc-foot-meta">
-                          <Eye size={10} /> {reviewCount} review link{reviewCount === 1 ? "" : "s"}
+                          <Eye size={10} /> {reviewCount} preview link{reviewCount === 1 ? "" : "s"}
                           {b.last_client_view && <> · last viewed {formatRelativeTime(b.last_client_view)}</>}
                         </span>
                       ) : (
                         <span className="bc-foot-meta">
-                          <Send size={10} /> Not yet sent for review
+                          <Send size={10} /> No preview link yet
                         </span>
                       )}
                     </div>
@@ -327,7 +311,7 @@ export default function BuildsDashboard() {
                       <button
                         className="bc-archive-btn"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); archiveBuild(b.id, b.brand_name); }}
-                        title="Archive"
+                        title={isArchived ? "Restore" : "Archive"}
                       >
                         <Trash2 size={11} />
                       </button>

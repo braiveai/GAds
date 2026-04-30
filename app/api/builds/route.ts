@@ -12,9 +12,8 @@ export async function GET(req: NextRequest) {
       .from("builds_with_review_summary")
       .select("*")
       .eq("agency_user_id", DEMO_USER_ID)
-      .neq("status", "archived")
       .order("updated_at", { ascending: false })
-      .limit(100);
+      .limit(200);
     if (error) {
       return NextResponse.json({ error: error.message, debug: error }, { status: 500 });
     }

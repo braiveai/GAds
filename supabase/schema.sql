@@ -188,3 +188,19 @@ select
     where r.build_id = b.id and a.status = 'note' and a.note_text is not null and length(a.note_text) > 0
   ) as note_count
 from public.builds b;
+
+-- ============================================
+-- Migration v0.7.8 - relax status constraint
+-- (drop old check that limited to draft/in_review/approved/live/archived;
+--  we now use 'active' or 'archived', with all old values still allowed for
+--  backward compat. Run if you applied earlier migrations.)
+-- ============================================
+alter table public.builds drop constraint if exists builds_status_check;
+alter table public.builds add constraint builds_status_check
+  check (status in ('draft','in_review','approved','live','archived','active'));
+
+-- Bump existing 'draft' rows to 'active' so they show in the new Active filter
+update public.builds set status = 'active' where status in ('draft','in_review','approved','live');
+
+-- Default for new rows
+alter table public.builds alter column status set default 'active';
