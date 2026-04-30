@@ -92,6 +92,17 @@ function smartClip(s: string, maxLen: number): string {
   return slice.replace(/[\s\-,.;:!]+$/, "");
 }
 
+/** Strip trailing words that suggest a fragment / mid-sentence cutoff */
+function stripPartialThought(s: string): string {
+  if (!s) return s;
+  const trailingFragmentWords = /\s+(and|or|but|with|for|to|of|the|a|an|your|our|my|its|his|her|their|in|on|at|by|from)\s*[.,;:]?\s*$/i;
+  let cleaned = s.trim().replace(trailingFragmentWords, "").trim();
+  if (cleaned !== s.trim()) {
+    cleaned = cleaned.replace(/[,;:]+$/, "").trim();
+  }
+  return cleaned;
+}
+
 export async function POST(req: NextRequest) {
   const debug: any = { steps: [] };
   const t0 = Date.now();
@@ -156,7 +167,7 @@ REQUIREMENTS
 - Other 14 headlines: <= 30 chars each. Mix of angles. Most pin = null.
 - Exactly 5 descriptions, <= 90 chars each.
 - Exactly 2 display paths, <= 15 chars, sentence case, hyphens not spaces.
-- Exactly 6 sitelinks (text + desc1 + desc2).
+- Exactly 6 sitelinks (text + desc1 + desc2). EACH sitelink description MUST be a complete thought - a finished phrase or sentence. NEVER end mid-sentence on words like "and", "with", "for", "to", "or", "the", "your", "our". If you can't fit a complete thought in 35 chars, write a SHORTER complete thought instead. Examples of bad sitelinks: "We help with your goals and" (truncated), "Strategy built around your" (cut off). Examples of good sitelinks: "Built around your goals" (23 chars, complete), "Real results, real fast" (23 chars, complete).
 - Australian English. Title Case headlines. Sentence case for descriptions/paths/sitelinks. No em dashes.
 - Distribute angles roughly: 3 benefit, 3 usp, 2 urgency, 2 proof, 3 qualifier/cta. (Headline 1 is benefit.)`;
 
@@ -204,12 +215,18 @@ REQUIREMENTS
     });
     if (out.headlines[0]) out.headlines[0].pin = 1;
 
-    // Descriptions: hard-clip to 90
+    // Descriptions: hard-clip to 90 + strip mid-sentence fragments
     out.descriptions = (out.descriptions || []).map((d: any, i: number) => {
       let text = d.text || "";
       if (text.length > 90) {
         text = smartClip(text, 90);
         clippedCount++;
+      }
+      // Don't strip from descriptions if it ends in a period - that's a real ending
+      if (text && !/[.!?]$/.test(text.trim())) {
+        const before = text;
+        text = stripPartialThought(text);
+        if (text !== before) clippedCount++;
       }
       return {
         ...d,
@@ -224,14 +241,16 @@ REQUIREMENTS
     // Paths: clip to 15
     out.paths = (out.paths || []).map((p: string) => (p && p.length > 15 ? smartClip(p, 15) : p));
 
-    // Sitelinks: clip
-    out.sitelinks = (out.sitelinks || []).map((s: any) => ({
-      ...s,
-      text: s.text && s.text.length > 25 ? smartClip(s.text, 25) : s.text,
-      desc1: s.desc1 && s.desc1.length > 35 ? smartClip(s.desc1, 35) : s.desc1,
-      desc2: s.desc2 && s.desc2.length > 35 ? smartClip(s.desc2, 35) : s.desc2,
-      id: rid("sl"),
-    }));
+    // Sitelinks: clip + strip mid-sentence fragments
+    out.sitelinks = (out.sitelinks || []).map((s: any) => {
+      let text = s.text && s.text.length > 25 ? smartClip(s.text, 25) : s.text;
+      let desc1 = s.desc1 && s.desc1.length > 35 ? smartClip(s.desc1, 35) : s.desc1;
+      let desc2 = s.desc2 && s.desc2.length > 35 ? smartClip(s.desc2, 35) : s.desc2;
+      // Strip trailing fragment words from descriptions only (text is allowed to be a noun phrase)
+      desc1 = stripPartialThought(desc1);
+      desc2 = stripPartialThought(desc2);
+      return { ...s, text, desc1, desc2, id: rid("sl") };
+    });
 
     debug.clippedCount = clippedCount;
     debug.totalElapsedMs = Date.now() - t0;
