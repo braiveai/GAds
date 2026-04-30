@@ -2100,10 +2100,53 @@ export default function Page() {
                   <p className="stage-sub">15 headlines, 5 descriptions, 2 paths, 6 sitelinks per ad group. H1 is DKI.</p>
                 </div>
                 <div className="gen-header-actions">
-                  <span className="gen-progress">{adGroupsWithCopy}/{adGroupsTotal} done</span>
                   <button className="btn primary" onClick={handleGenerateAll} disabled={!!loading}>
                     <Wand2 size={13} /> Generate all
                   </button>
+                </div>
+              </div>
+
+              {/* Build-at-a-glance summary */}
+              <div className="build-glance">
+                <div className="build-glance-stats">
+                  <div className="glance-stat">
+                    <span className="glance-stat-value">{campaigns.length}</span>
+                    <span className="glance-stat-label">Campaign{campaigns.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div className="glance-stat">
+                    <span className="glance-stat-value">{totalAdGroups}</span>
+                    <span className="glance-stat-label">Ad groups</span>
+                  </div>
+                  <div className="glance-stat">
+                    <span className="glance-stat-value">{totalKeywords}</span>
+                    <span className="glance-stat-label">Keywords</span>
+                  </div>
+                  <div className="glance-stat">
+                    <span className="glance-stat-value glance-stat-accent">{fmtMoney(totalMonthlyBudget)}</span>
+                    <span className="glance-stat-label">Monthly spend</span>
+                  </div>
+                  <div className="glance-stat">
+                    <span className="glance-stat-value">{adGroupsTotal * 18}</span>
+                    <span className="glance-stat-label">Assets when complete</span>
+                  </div>
+                </div>
+                <div className="build-glance-progress">
+                  <div className="glance-progress-h">
+                    <span className="glance-progress-label">Copy generation</span>
+                    <span className="glance-progress-meta"><strong>{adGroupsWithCopy}</strong> of {adGroupsTotal} ad groups done</span>
+                  </div>
+                  <div className="glance-progress-bar">
+                    <div
+                      className="glance-progress-fill"
+                      style={{ width: adGroupsTotal > 0 ? `${(adGroupsWithCopy / adGroupsTotal) * 100}%` : "0%" }}
+                    />
+                  </div>
+                  {adGroupsWithCopy < adGroupsTotal && (
+                    <p className="glance-progress-hint">Hit "Generate all" above to fill the rest.</p>
+                  )}
+                  {adGroupsWithCopy === adGroupsTotal && adGroupsTotal > 0 && (
+                    <p className="glance-progress-hint glance-done">All copy generated. Move to Client review when ready.</p>
+                  )}
                 </div>
               </div>
 
@@ -2463,7 +2506,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.7 · Architect</span>
+        <span className="status-section">v0.7.1 · Architect</span>
       </div>
 
       {/* LOADING OVERLAY */}
