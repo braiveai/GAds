@@ -178,7 +178,8 @@ function tip(key: string): string {
 }
 
 function fmtMoney(n: number) {
-  return `$${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
+  const safe = Number.isFinite(Number(n)) ? Number(n) : 0;
+  return `$${safe.toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
 }
 
 function pickHeadlinesByAngle(headlines: Headline[], wanted: string[]): Headline[] {
@@ -323,7 +324,23 @@ export default function Page() {
             if (b.brief) setBrief(b.brief);
             if (typeof b.lean_value === "number") setLeanValue(b.lean_value);
             if (Array.isArray(b.channels)) setChannels(b.channels);
-            if (Array.isArray(b.campaigns)) setCampaigns(b.campaigns);
+            if (Array.isArray(b.campaigns)) {
+              // Normalize: ensure every campaign has adGroups[], every ad group has keywords[]
+              const normalized = b.campaigns.map((c: any) => ({
+                ...c,
+                adGroups: Array.isArray(c?.adGroups)
+                  ? c.adGroups.map((g: any) => ({
+                      ...g,
+                      keywords: Array.isArray(g?.keywords) ? g.keywords : [],
+                    }))
+                  : [],
+                locations: Array.isArray(c?.locations) ? c.locations : [],
+                audiences: Array.isArray(c?.audiences) ? c.audiences : [],
+                negatives: Array.isArray(c?.negatives) ? c.negatives : [],
+                budget: typeof c?.budget === "number" ? c.budget : 0,
+              }));
+              setCampaigns(normalized);
+            }
             if (b.user_context) setUserContext(b.user_context);
             if (typeof b.brand_guidelines === "string") setBrandGuidelines(b.brand_guidelines);
             if (typeof b.name_suffix === "string") setNameSuffix(b.name_suffix);
@@ -364,7 +381,22 @@ export default function Page() {
           if (s.brief) setBrief(s.brief);
           if (typeof s.leanValue === "number") setLeanValue(s.leanValue);
           if (Array.isArray(s.channels)) setChannels(s.channels);
-          if (Array.isArray(s.campaigns)) setCampaigns(s.campaigns);
+          if (Array.isArray(s.campaigns)) {
+            const normalized = s.campaigns.map((c: any) => ({
+              ...c,
+              adGroups: Array.isArray(c?.adGroups)
+                ? c.adGroups.map((g: any) => ({
+                    ...g,
+                    keywords: Array.isArray(g?.keywords) ? g.keywords : [],
+                  }))
+                : [],
+              locations: Array.isArray(c?.locations) ? c.locations : [],
+              audiences: Array.isArray(c?.audiences) ? c.audiences : [],
+              negatives: Array.isArray(c?.negatives) ? c.negatives : [],
+              budget: typeof c?.budget === "number" ? c.budget : 0,
+            }));
+            setCampaigns(normalized);
+          }
           if (s.stage) setStage(s.stage);
           if (s.archSub) setArchSub(s.archSub);
           if (s.activeAdGroupKey) setActiveAdGroupKey(s.activeAdGroupKey);
@@ -1135,7 +1167,7 @@ export default function Page() {
       {/* ============ SIDEBAR ============ */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src="/architect-logo.jpg" alt="Architect, a BRAIVE product" className="brand-logo" />
+          <img src="/architect-logo.png" alt="Architect, a BRAIVE product" className="brand-logo" />
         </div>
 
         <div className="nav-section">

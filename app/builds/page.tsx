@@ -11,15 +11,15 @@ type BuildRow = {
   status: "draft" | "in_review" | "approved" | "live" | "archived";
   created_at: string;
   updated_at: string;
-  campaign_count: number;
-  ad_group_count: number;
-  keyword_count: number;
-  ad_groups_with_copy: number;
-  daily_budget: number;
-  review_count: number;
+  campaign_count: number | null;
+  ad_group_count: number | null;
+  keyword_count: number | null;
+  ad_groups_with_copy: number | null;
+  daily_budget: number | null;
+  review_count: number | null;
   last_client_view: string | null;
-  approval_count: number;
-  note_count: number;
+  approval_count: number | null;
+  note_count: number | null;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -95,11 +95,11 @@ export default function BuildsDashboard() {
 
   const filtered = filter === "all" ? builds : builds.filter((b) => b.status === filter);
 
-  // Aggregate stats for the top dashboard meta-tile
-  const totalCampaigns = builds.reduce((s, b) => s + (b.campaign_count || 0), 0);
-  const totalKeywords = builds.reduce((s, b) => s + (b.keyword_count || 0), 0);
-  const totalMonthlyBudget = builds.reduce((s, b) => s + ((b.daily_budget || 0) * DAYS_PER_MONTH), 0);
-  const totalApprovals = builds.reduce((s, b) => s + (b.approval_count || 0), 0);
+  // Aggregate stats for the top dashboard meta-tile (defensively coerced)
+  const totalCampaigns = builds.reduce((s, b) => s + (Number(b.campaign_count) || 0), 0);
+  const totalKeywords = builds.reduce((s, b) => s + (Number(b.keyword_count) || 0), 0);
+  const totalMonthlyBudget = builds.reduce((s, b) => s + ((Number(b.daily_budget) || 0) * DAYS_PER_MONTH), 0);
+  const totalApprovals = builds.reduce((s, b) => s + (Number(b.approval_count) || 0), 0);
 
   const counts = {
     all: builds.length,
@@ -113,7 +113,7 @@ export default function BuildsDashboard() {
     <div className="dashboard">
       <header className="dashboard-h">
         <div className="dashboard-h-l">
-          <img src="/architect-logo.jpg" alt="Architect" className="dashboard-logo" />
+          <img src="/architect-logo.png" alt="Architect" className="dashboard-logo" />
         </div>
         <div className="dashboard-h-actions">
           <button className="btn sm ghost" onClick={refresh} title="Refresh">
@@ -201,11 +201,21 @@ export default function BuildsDashboard() {
         {filtered.length > 0 && (
           <div className="dashboard-list">
             {filtered.map((b) => {
-              const monthlyBudget = (b.daily_budget || 0) * DAYS_PER_MONTH;
-              const copyProgress = b.ad_group_count > 0 ? (b.ad_groups_with_copy / b.ad_group_count) * 100 : 0;
-              const totalReviewableVariations = b.ad_group_count * 3; // 3 angle variations per ad group
-              const approvalProgress = totalReviewableVariations > 0 ? Math.min(100, (b.approval_count / totalReviewableVariations) * 100) : 0;
-              const showApprovalBar = b.status === "in_review" || b.status === "approved" || b.review_count > 0;
+              // Defensive coercion - schema migration may not have applied yet, so any of these can be null/undefined
+              const campaignCount = Number(b.campaign_count) || 0;
+              const adGroupCount = Number(b.ad_group_count) || 0;
+              const keywordCount = Number(b.keyword_count) || 0;
+              const adGroupsWithCopy = Number(b.ad_groups_with_copy) || 0;
+              const dailyBudget = Number(b.daily_budget) || 0;
+              const approvalCount = Number(b.approval_count) || 0;
+              const noteCount = Number(b.note_count) || 0;
+              const reviewCount = Number(b.review_count) || 0;
+
+              const monthlyBudget = dailyBudget * DAYS_PER_MONTH;
+              const copyProgress = adGroupCount > 0 ? (adGroupsWithCopy / adGroupCount) * 100 : 0;
+              const totalReviewableVariations = adGroupCount * 3;
+              const approvalProgress = totalReviewableVariations > 0 ? Math.min(100, (approvalCount / totalReviewableVariations) * 100) : 0;
+              const showApprovalBar = b.status === "in_review" || b.status === "approved" || reviewCount > 0;
 
               return (
                 <Link key={b.id} href={`/?build=${b.id}`} className="build-card-v2">
@@ -228,15 +238,15 @@ export default function BuildsDashboard() {
 
                   <div className="build-card-v2-stats">
                     <div className="bc-stat">
-                      <span className="bc-stat-value">{b.campaign_count}</span>
+                      <span className="bc-stat-value">{campaignCount}</span>
                       <span className="bc-stat-label">Campaigns</span>
                     </div>
                     <div className="bc-stat">
-                      <span className="bc-stat-value">{b.ad_group_count}</span>
+                      <span className="bc-stat-value">{adGroupCount}</span>
                       <span className="bc-stat-label">Ad groups</span>
                     </div>
                     <div className="bc-stat">
-                      <span className="bc-stat-value">{b.keyword_count.toLocaleString()}</span>
+                      <span className="bc-stat-value">{keywordCount.toLocaleString()}</span>
                       <span className="bc-stat-label">Keywords</span>
                     </div>
                     <div className="bc-stat">
@@ -246,15 +256,15 @@ export default function BuildsDashboard() {
                   </div>
 
                   {/* Copy generation progress (always shown if any ad groups exist) */}
-                  {b.ad_group_count > 0 && (
+                  {adGroupCount > 0 && (
                     <div className="bc-progress">
                       <div className="bc-progress-h">
                         <span className="bc-progress-label">
                           <Sparkles size={10} /> Copy
                         </span>
                         <span className="bc-progress-meta">
-                          <strong>{b.ad_groups_with_copy}</strong> / {b.ad_group_count} ad groups
-                          {b.ad_groups_with_copy === b.ad_group_count && b.ad_group_count > 0 && <span className="bc-progress-badge">complete</span>}
+                          <strong>{adGroupsWithCopy}</strong> / {adGroupCount} ad groups
+                          {adGroupsWithCopy === adGroupCount && adGroupCount > 0 && <span className="bc-progress-badge">complete</span>}
                         </span>
                       </div>
                       <div className="bc-progress-bar">
@@ -271,9 +281,9 @@ export default function BuildsDashboard() {
                           <Check size={10} /> Client approvals
                         </span>
                         <span className="bc-progress-meta">
-                          <strong>{b.approval_count}</strong> / {totalReviewableVariations} variations
-                          {b.note_count > 0 && (
-                            <span className="bc-progress-notes"><MessageSquare size={9} /> {b.note_count} note{b.note_count === 1 ? "" : "s"}</span>
+                          <strong>{approvalCount}</strong> / {totalReviewableVariations} variations
+                          {noteCount > 0 && (
+                            <span className="bc-progress-notes"><MessageSquare size={9} /> {noteCount} note{noteCount === 1 ? "" : "s"}</span>
                           )}
                         </span>
                       </div>
@@ -285,9 +295,9 @@ export default function BuildsDashboard() {
 
                   <div className="build-card-v2-foot">
                     <div className="bc-foot-l">
-                      {b.review_count > 0 ? (
+                      {reviewCount > 0 ? (
                         <span className="bc-foot-meta">
-                          <Eye size={10} /> {b.review_count} review link{b.review_count === 1 ? "" : "s"}
+                          <Eye size={10} /> {reviewCount} review link{reviewCount === 1 ? "" : "s"}
                           {b.last_client_view && <> · last viewed {formatRelativeTime(b.last_client_view)}</>}
                         </span>
                       ) : (

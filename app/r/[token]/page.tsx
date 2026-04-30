@@ -256,7 +256,7 @@ export default function ClientReviewPage({ params }: { params: { token: string }
       <header className="hdr">
         <div className="hdr-inner">
           <div className="hdr-name">
-            <img src="/architect-logo.jpg" alt="Architect" className="hdr-logo" />
+            <img src="/architect-logo.png" alt="Architect" className="hdr-logo" />
             <div>
               <div className="hdr-build">Campaign review</div>
               <div className="hdr-sub">{session.brandName || host}</div>
