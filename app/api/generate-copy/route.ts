@@ -88,15 +88,28 @@ function smartClip(s: string, maxLen: number): string {
   if (!s || s.length <= maxLen) return s;
   const slice = s.slice(0, maxLen);
   const lastSpace = slice.lastIndexOf(" ");
-  if (lastSpace > maxLen - 12) return slice.slice(0, lastSpace).replace(/[\s\-,.;:!]+$/, "");
+  // Always prefer the last whole-word boundary, even if it means dropping more characters.
+  // Falling back to a hard mid-word cut creates ugly fragments like "30 full-time Australian professiona".
+  if (lastSpace > 0) {
+    return slice.slice(0, lastSpace).replace(/[\s\-,.;:!]+$/, "");
+  }
+  // Single very long word - just take the slice (rare edge case)
   return slice.replace(/[\s\-,.;:!]+$/, "");
 }
 
 /** Strip trailing words that suggest a fragment / mid-sentence cutoff */
 function stripPartialThought(s: string): string {
   if (!s) return s;
-  const trailingFragmentWords = /\s+(and|or|but|with|for|to|of|the|a|an|your|our|my|its|his|her|their|in|on|at|by|from)\s*[.,;:]?\s*$/i;
-  let cleaned = s.trim().replace(trailingFragmentWords, "").trim();
+  // Includes: prepositions, conjunctions, articles, determiners, relative pronouns, possessives, complementizers
+  const trailingFragmentWords = /\s+(and|or|but|with|for|to|of|the|a|an|your|our|my|its|his|her|their|in|on|at|by|from|that|which|who|whom|whose|when|where|while|so|as|like|than|because|since|if|though|although|after|before|over|under|into|onto|about|across|through|during|without|within|upon|around|behind|beside|beneath|beyond|despite|except)\s*[.,;:]?\s*$/i;
+  let cleaned = s.trim();
+  // Apply repeatedly so 'into the' becomes '' not 'into'
+  let prev;
+  do {
+    prev = cleaned;
+    cleaned = cleaned.replace(trailingFragmentWords, "").trim();
+  } while (cleaned !== prev && cleaned.length > 0);
+  // Strip trailing punctuation if we removed any words
   if (cleaned !== s.trim()) {
     cleaned = cleaned.replace(/[,;:]+$/, "").trim();
   }
