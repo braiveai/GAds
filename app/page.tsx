@@ -12,7 +12,7 @@ import Link from "next/link";
    TYPES
    ============================================================ */
 
-type Channel = "Search" | "PMax" | "Demand";
+type Channel = "Search";
 type Match = "PHR" | "EXC" | "BRD";
 
 type AngleEntry = { title: string; desc: string };
@@ -84,7 +84,7 @@ type LoadingState = { message: string; sub?: string } | null;
    ============================================================ */
 
 const STRUCTURE_OPTIONS = ["MKAG", "SKAG", "STAG", "Hagakure", "Custom"] as const;
-const CHANNEL_OPTIONS: Channel[] = ["Search", "PMax", "Demand"];
+const CHANNEL_OPTIONS: Channel[] = ["Search"];
 const MATCH_OPTIONS: Match[] = ["PHR", "EXC", "BRD"];
 const BID_STRATEGIES = [
   "Maximise conversions",
@@ -167,8 +167,6 @@ const ACRONYM_TIPS: Record<string, string> = {
   EXC: "Exact match - matches only searches with the exact meaning of your keyword",
   BRD: "Broad match - matches related searches even without your keyword",
   Search: "Search campaign - keywords + responsive search ads on Google.com",
-  PMax: "Performance Max - asset groups across all Google channels",
-  Demand: "Demand Gen - discovery-style feeds across YouTube and Discover",
   DKI: "Dynamic Keyword Insertion - swaps the user's search term into the headline",
   RSA: "Responsive Search Ad - up to 15 headlines and 5 descriptions",
 };
@@ -1654,35 +1652,6 @@ export default function Page() {
                 </div>
 
                 <div className="brief-section">
-                  <div className="label-mono">Channels</div>
-                  <div className="channel-grid">
-                    {CHANNEL_OPTIONS.map((c) => {
-                      const checked = channels.includes(c);
-                      return (
-                        <div
-                          key={c}
-                          className={classNames("channel-card", checked && "checked")}
-                          onClick={() => {
-                            setChannels((prev) =>
-                              prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
-                            );
-                          }}
-                          title={tip(c)}
-                        >
-                          <div className="channel-card-h">
-                            <span className="channel-card-name">{c}</span>
-                            <span className="channel-card-c" />
-                          </div>
-                          <p className="channel-card-desc">
-                            {c === "Search" ? "Keywords + RSAs" : c === "PMax" ? "Asset groups + signals" : "Discovery feeds"}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="brief-section">
                   <div className="label-mono">Number of campaigns</div>
                   <div className="campaign-count-picker">
                     <button
@@ -1710,7 +1679,7 @@ export default function Page() {
 
                 <div className="action-row">
                   <span className="summary">
-                    <strong>{channels.length}</strong> channel{channels.length === 1 ? "" : "s"} · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SA"}</strong>
+                    <strong>Search</strong> · <strong>{leanValue}%</strong> aspiration · suffix <strong>| {nameSuffix || "SA"}</strong>
                     {prioritizedAngles.length > 0 && <> · <strong>{prioritizedAngles.length}</strong> angle{prioritizedAngles.length === 1 ? "" : "s"} starred</>}
                     {pinnedPages.length > 0 && <> · <strong>{pinnedPages.length}</strong> page{pinnedPages.length === 1 ? "" : "s"} pinned</>}
                     {selectedPages.length > pinnedPages.length && <> · <strong>{selectedPages.length - pinnedPages.length}</strong> available</>}
@@ -1791,7 +1760,7 @@ export default function Page() {
             <div className="substage-content wide">
               <div className="substage-intro">
                 <h2>Campaigns</h2>
-                <p>Name, structure, channel, budget. Each campaign has a <strong>client rationale</strong> below the form - that's what to walk a client through.</p>
+                <p>Name, structure, budget. Each campaign has a <strong>client rationale</strong> below the form - that's what to walk a client through.</p>
               </div>
               <div className="campaign-form-list">
                 {campaigns.map((c) => (
@@ -1815,21 +1784,6 @@ export default function Page() {
                               className={classNames("seg-btn", c.structure === s && "active")}
                               title={tip(s)}
                               onClick={() => updateCampaign(c.id, { structure: s })}
-                            >
-                              {s}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="cfc-field">
-                        <label>Channel</label>
-                        <div className="seg">
-                          {CHANNEL_OPTIONS.map((s) => (
-                            <button
-                              key={s}
-                              className={classNames("seg-btn", c.channelType === s && "active")}
-                              title={tip(s)}
-                              onClick={() => updateCampaign(c.id, { channelType: s })}
                             >
                               {s}
                             </button>
@@ -2063,7 +2017,6 @@ export default function Page() {
                       </div>
                       <div className="campaign-col-h-row2">
                         <span className="kw-match phrase" title={tip(c.structure)}>{c.structure}</span>
-                        <span className="kw-match exact" title={tip(c.channelType)}>{c.channelType}</span>
                         <span className="arch-stat">${c.budget}/d</span>
                       </div>
                     </div>
@@ -2538,7 +2491,7 @@ export default function Page() {
           <span className="status-section">{fmtMoney(totalMonthlyBudget)}/mo</span>
         )}
         <span className="status-section spacer" />
-        <span className="status-section">v0.8 · Architect</span>
+        <span className="status-section">v0.8.1 · Architect</span>
       </div>
 
       {/* LOADING OVERLAY */}

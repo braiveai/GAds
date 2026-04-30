@@ -6,7 +6,7 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const STRUCTURE_OPTIONS = ["MKAG", "SKAG", "STAG", "Hagakure", "Custom"] as const;
-const CHANNEL_OPTIONS = ["Search", "PMax", "Demand"] as const;
+const CHANNEL_OPTIONS = ["Search"] as const;
 const BID_STRATEGIES = [
   "Maximise conversions",
   "Maximise conversion value",
@@ -29,7 +29,7 @@ const archTool = {
       strategySummary: {
         type: "string",
         description:
-          "2-4 sentences explaining the overall strategy: how campaigns are themed, why this lean was chosen, how channels work together. Written for the AGENCY to brief their client.",
+          "2-4 sentences explaining the overall strategy: how campaigns are themed, why this lean was chosen, how the architecture supports the brief. Written for the AGENCY to brief their client.",
       },
       campaigns: {
         type: "array",
@@ -281,10 +281,11 @@ ${(angles.pain || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.des
 ASPIRATION:
 ${(angles.aspiration || []).map((a: any, i: number) => `${i + 1}. ${a.title} - ${a.desc}`).join("\n")}
 
-CHANNELS REQUESTED: ${channelList.join(", ")}${candidatePagesBlock}${mandatoryPagesBlock}${prioritizedAnglesBlock}
+${candidatePagesBlock}${mandatoryPagesBlock}${prioritizedAnglesBlock}
 
 REQUIREMENTS
 - ${campaignCountInstruction}
+- All campaigns are Google Ads SEARCH campaigns (channelType: "Search"). Architect builds Search campaigns only.
 - Naming: campaign = "{Theme} x {Sub-theme} | ${suffix}", ad group = "{Sub-theme} | {STRUCTURE}".
 - 2 to 4 ad groups per campaign (except SKAG, see below).
 - Provide a top-level strategySummary AND a clientRationale per campaign written for a non-technical client.
