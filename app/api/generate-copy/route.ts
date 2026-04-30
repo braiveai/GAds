@@ -61,9 +61,9 @@ const copyTool = {
         items: {
           type: "object",
           properties: {
-            text: { type: "string", description: "Sitelink headline, <= 25 chars", maxLength: 25 },
-            desc1: { type: "string", description: "Description 1, <= 35 chars", maxLength: 35 },
-            desc2: { type: "string", description: "Description 2, <= 35 chars", maxLength: 35 },
+            text: { type: "string", description: "Sitelink button label - a noun phrase naming a page or action (e.g. 'Free strategy session', 'Pricing & plans', 'Client results'). 2-4 words. <= 25 chars.", maxLength: 25 },
+            desc1: { type: "string", description: "Sitelink benefit/feature phrase 1. NOT a sentence. A short, punchy, standalone phrase highlighting a specific concrete benefit, proof point, or feature. 3-7 words, ideally 18-30 chars. Examples: '9.8/10 client rating', '30 local experts on team', 'No lock-in contracts', 'Free 30-min strategy call'. NEVER a fragment ending mid-thought.", maxLength: 35 },
+            desc2: { type: "string", description: "Sitelink benefit/feature phrase 2. Same rules as desc1 - a complete short phrase, not a sentence fragment. Should pair naturally with desc1 (e.g. if desc1 is a proof point, desc2 might be a benefit).", maxLength: 35 },
           },
           required: ["text", "desc1", "desc2"],
         },
@@ -180,7 +180,7 @@ REQUIREMENTS
 - Other 14 headlines: <= 30 chars each. Mix of angles. Most pin = null.
 - Exactly 5 descriptions, <= 90 chars each.
 - Exactly 2 display paths, <= 15 chars, sentence case, hyphens not spaces.
-- Exactly 6 sitelinks (text + desc1 + desc2). EACH sitelink description MUST be a complete thought - a finished phrase or sentence. NEVER end mid-sentence on words like "and", "with", "for", "to", "or", "the", "your", "our". If you can't fit a complete thought in 35 chars, write a SHORTER complete thought instead. Examples of bad sitelinks: "We help with your goals and" (truncated), "Strategy built around your" (cut off). Examples of good sitelinks: "Built around your goals" (23 chars, complete), "Real results, real fast" (23 chars, complete).
+- Exactly 6 sitelinks. Each has a button label (text) + 2 benefit/feature PHRASES (desc1, desc2). Sitelink descriptions are NOT sentences - they're short standalone phrases like "9.8/10 client rating", "Free 30-min strategy call", "30 local experts", "No lock-in contracts". 3-7 words each. Sentence case, no full stop. Each phrase must read as a complete idea on its own - if a phrase needs the next word to make sense ("Strategy built around your..."), rewrite it shorter ("Tailored to your goals"). Aim for 18-30 chars; 35 is the absolute cap. Six sitelinks should cover different value props (e.g. SL1=core service, SL2=proof, SL3=guarantee, SL4=team, SL5=results, SL6=CTA).
 - Australian English. Title Case headlines. Sentence case for descriptions/paths/sitelinks. No em dashes.
 - Distribute angles roughly: 3 benefit, 3 usp, 2 urgency, 2 proof, 3 qualifier/cta. (Headline 1 is benefit.)`;
 
@@ -254,14 +254,11 @@ REQUIREMENTS
     // Paths: clip to 15
     out.paths = (out.paths || []).map((p: string) => (p && p.length > 15 ? smartClip(p, 15) : p));
 
-    // Sitelinks: clip + strip mid-sentence fragments
+    // Sitelinks: clip lengths only. Prompt now requires phrases not sentences, so post-strip isn't needed.
     out.sitelinks = (out.sitelinks || []).map((s: any) => {
-      let text = s.text && s.text.length > 25 ? smartClip(s.text, 25) : s.text;
-      let desc1 = s.desc1 && s.desc1.length > 35 ? smartClip(s.desc1, 35) : s.desc1;
-      let desc2 = s.desc2 && s.desc2.length > 35 ? smartClip(s.desc2, 35) : s.desc2;
-      // Strip trailing fragment words from descriptions only (text is allowed to be a noun phrase)
-      desc1 = stripPartialThought(desc1);
-      desc2 = stripPartialThought(desc2);
+      const text = s.text && s.text.length > 25 ? smartClip(s.text, 25) : s.text;
+      const desc1 = s.desc1 && s.desc1.length > 35 ? smartClip(s.desc1, 35) : s.desc1;
+      const desc2 = s.desc2 && s.desc2.length > 35 ? smartClip(s.desc2, 35) : s.desc2;
       return { ...s, text, desc1, desc2, id: rid("sl") };
     });
 
